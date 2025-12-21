@@ -1,3 +1,6 @@
+# Script per scaricare i dati storici dei prezzi dell'indice MSCI World utilizzando yfinance,
+# salvarli in un file CSV e caricarli per l'analisi.
+
 import os
 import yfinance as yf
 import pandas as pd
@@ -10,7 +13,8 @@ path = os.path.join(dirName, fileName)
 
 if not os.path.isfile(path):
     ticker = "IWDA.AS"
-    dati = yf.download(ticker, start="2015-12-05", end="2025-12-05")
+    #ticker = "^GSPC"  # Usato per testare con l'S&P 500
+    dati = yf.download(ticker, start="2009-9-25", end="2025-12-05")
 
     # 2. Salva solo i prezzi di chiusura in un file CSV
     prezzi_chiusura = dati['Close']
