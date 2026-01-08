@@ -17,7 +17,7 @@ possibili per il kernel CUDA, seguendo le best practice per la programmazione GP
 #include <sstream>
 
 // --- CONFIGURAZIONE 
-const std::string CSV_FILENAME = "dataset/msci_world_prezzi.csv";
+const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
 const int N_SIMULATIONS = 10000000; // 10 Milioni di simulazioni
 const double T_YEARS = 10.0;         // Orizzonte temporale: 10 anni
 const double CONFIDENCE_LEVEL = 0.99; // VaR al 99%
