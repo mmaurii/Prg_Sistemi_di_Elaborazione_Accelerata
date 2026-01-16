@@ -120,6 +120,7 @@ int main() {
     std::mt19937 generator(12345); 
     std::normal_distribution<double> distribution(0.0, 1.0);
 
+    
     // Timer Start
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -142,8 +143,17 @@ int main() {
     // 4. Calcolo VaR (Post-processing)
     std::cout << "Calcolo del VaR..." << std::endl;
     
+    // Timer Start
+    startTime = std::chrono::high_resolution_clock::now();
+
     // Ordiniamo per trovare il percentile
     std::sort(simulatedPrices.begin(), simulatedPrices.end());
+
+    // Timer End
+    endTime = std::chrono::high_resolution_clock::now();
+    elapsed = endTime - startTime;
+
+    std::cout << "Tempo sort: " << elapsed.count() << " secondi." << std::endl;
 
     // Indice per il percentile (es. 5% per confidenza 95%)
     int indexCutoff = static_cast<int>(N_SIMULATIONS * (1.0 - CONFIDENCE_LEVEL));
