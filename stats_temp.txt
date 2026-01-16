@@ -1,0 +1,33 @@
+=== Monte Carlo VaR GPU (NAIVE) ===
+Letti 4147 prezzi
+S0: 111.28
+Drift ann.: 11.4234%
+Vol ann.: 15.3459%
+Monte Carlo GPU: 0.0217012 s
+
+VaR 99% (10 anni)
+Prezzo peggiore: 100.202
+Perdita stimata: 11.0779 (9.95494%)
+
+real    0m5.414s
+user    0m5.161s
+sys     0m0.241s
+
+
+=== Monte Carlo VaR CPU Baseline ===
+Lettura dati da DATASET/msci_world_prezzi.csv...
+Letti 4147 prezzi storici.
+Prezzo Iniziale (S0): 111.28
+Drift Annualizzato: 0.114234 (11.4234%)
+Volatilita' Annualizzata: 0.153459 (15.3459%)
+
+Avvio Simulazione (10000000 iterazioni)...
+Simulazione completata in: 1.19451 secondi.
+Calcolo del VaR...
+Risultato VaR 99% (10 anni):
+Prezzo peggiore atteso (1% dei casi): 100.208
+Perdita Massima Stimata: 11.0719 (9.94955%)
+
+real    0m6.345s
+user    0m6.298s
+sys     0m0.037s
