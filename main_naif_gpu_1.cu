@@ -1,0 +1,182 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <cmath>
+#include <algorithm>
+#include <random>
+#include <chrono>
+#include <string>
+#include <sstream>
+#include <time.h>
+#include <iomanip>
+
+// CUDA
+#include <cuda.h>
+#include <curand_kernel.h>
+
+// Configurazione
+const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
+const int N_SIMULATIONS = 100'000;
+const double T_YEARS = 1.0;
+const int SEED = 12345UL;
+const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
+const double CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
+
+
+// Caricamento dati da CSV
+std::vector<double> readPrices(const std::string& filename) {
+    std::vector<double> prices;
+    std::ifstream file(filename);
+    std::string line;
+
+    std::getline(file, line); // header
+    while (std::getline(file, line)) {
+        size_t lastComma = line.find_last_of(',');
+        if (lastComma != std::string::npos) {
+            try {
+                prices.push_back(std::stod(line.substr(lastComma + 1)));
+            } catch (...) {}
+        }
+    }
+    return prices;
+}
+
+// Calcolo prestazioni
+double cpuSecond() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return ((double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9);
+}
+
+// Calcolo parametri drift e volatilità
+void calculateParameters(const std::vector<double>& prices, double& S0, double& drift, double& vol) {
+    S0 = prices.back();
+
+    std::vector<double> logReturns;
+    for (size_t i = 1; i < prices.size(); ++i) {
+        logReturns.push_back(std::log(prices[i] / prices[i - 1]));
+    }
+
+    // Calcolo drift giornaliero
+    double mean = 0.0;
+    for (double r : logReturns) mean += r;
+    mean /= logReturns.size();
+
+    // Calcolo deviazione standard
+    double sq = 0.0;
+    for (double r : logReturns) sq += r * r;
+
+    double stdev = std::sqrt(sq / logReturns.size() - mean * mean);
+
+    // Annualizzazione
+    drift = mean * DAYS_OPEN_IN_YEAR;
+    vol   = stdev * std::sqrt(DAYS_OPEN_IN_YEAR);
+}
+
+// Kernel cuda per simulazioni Monte Carlo
+__global__ void monteCarloKernel(double *dResults, double S0, double driftPart, double volPart, int nSimulations, int nDays) {
+    // Calcolo ID globale del thread
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < nSimulations) {
+        // Inizializza lo stato del generatore di numeri casuali
+        curandStatePhilox4_32_10_t state;
+        curand_init(SEED, idx, 0, &state);        
+
+        double currentPrice = S0;
+        
+        // --- CICLO PATH-DEPENDENT (Il cuore del calcolo) ---
+        for (int t = 0; t < nDays; ++t) {
+            // Genera numero casuale distribuzione normale
+            double Z = curand_normal_double(&state);
+            
+            // Aggiorna prezzo
+            currentPrice *= expf(driftPart + volPart * Z);
+        }
+
+        // Scriviamo solo il risultato finale in memoria globale
+        dResults[idx] = currentPrice;
+    }
+}
+
+int main(void) {
+
+    std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
+
+    // Caricamento dati
+    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
+    auto prices = readPrices(CSV_FILENAME);
+    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
+
+    // Calcolo parametri
+    double S0, drift, volatilita;
+    calculateParameters(prices, S0, drift, volatilita);
+
+    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
+
+    const double DT = 1.0 / static_cast<double>(DAYS_OPEN_IN_YEAR);
+    const double driftStep = (drift - 0.5 * volatilita * volatilita) * DT;
+    const double volStep = volatilita * std::sqrt(DT);
+
+    std::cout << "\nAvvio simulazione (" << N_SIMULATIONS << " cammini x " << T_YEARS << " anni)..." << std::endl;
+
+    // Allocazione variabile su GPU per simulazioni
+    double* dSim;
+    cudaMalloc(&dSim, N_SIMULATIONS * sizeof(double));
+    
+    // Definizione griglia e blocchi 1D e 1D
+    dim3 blockDim(256, 1, 1);
+    dim3 gridDim((N_SIMULATIONS + blockDim.x - 1) / blockDim.x, 1, 1);
+
+    // Avvio timer
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    monteCarloKernel<<<gridDim, blockDim>>>(dSim, S0, driftStep, volStep, N_SIMULATIONS, DAYS_OPEN_IN_YEAR * T_YEARS);
+    cudaDeviceSynchronize();
+    
+    // Termine timer
+    auto t1 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = t1-t0;
+    std::cout << "Simulazione GPU completata in: " << elapsed.count() << " secondi." << std::endl;
+    
+    // Trasferimento prezzi simulati da GPU a CPU
+    std::vector<double> simulatedPortfolioValues(N_SIMULATIONS);
+    cudaMemcpy(simulatedPortfolioValues.data(), dSim, N_SIMULATIONS * sizeof(double), cudaMemcpyDeviceToHost);
+
+    cudaFree(dSim);
+
+    // Analisi dei risultati
+    std::cout << "Analisi dei risultati..." << std::endl;
+    t0 = std::chrono::high_resolution_clock::now();
+
+    std::sort(simulatedPortfolioValues.begin(), simulatedPortfolioValues.end());
+
+    t1 = std::chrono::high_resolution_clock::now();
+    elapsed = t1-t0;
+    std::cout << "Tempo sort: " << elapsed.count() << " secondi." << std::endl;
+
+    // Scenario Peggiore (1% percentile - Potential Downside)
+    int idxWorst = (int)(N_SIMULATIONS * 0.01f);
+    double priceWorst = simulatedPortfolioValues[idxWorst];
+    double portfolioWorst = CAPITALE_INIZIALE * (priceWorst / S0);
+
+    // Scenario Mediano (50% percentile - Valore più probabile)
+    int idxMed = (int)(N_SIMULATIONS * 0.50f);
+    double priceMed = simulatedPortfolioValues[idxMed];
+    double portfolioMed = CAPITALE_INIZIALE * (priceMed / S0);
+
+    // Scenario Migliore (99% percentile - Potential Upside)
+    int idxBest = (int)(N_SIMULATIONS * 0.99f);
+    double priceBest = simulatedPortfolioValues[idxBest];
+    double portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
+
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
+    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
+    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
+    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+
+    return 0;
+}

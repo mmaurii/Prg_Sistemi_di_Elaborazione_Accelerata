@@ -21,6 +21,7 @@ const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
 const int N_SIMULATIONS = 10000000; // 10 Milioni di simulazioni
 const double T_YEARS = 10.0;         // Orizzonte temporale: 10 anni
 const double CONFIDENCE_LEVEL = 0.99; // VaR al 99%
+const int SEED = 12345;
 
 // --- FUNZIONI DI UTILITÀ ---
 
@@ -117,7 +118,7 @@ int main() {
     
     // Setup Random Number Generator (Standard C++)
     // Usiamo un seed fisso per riproducibilità dei risultati
-    std::mt19937 generator(12345); 
+    std::mt19937 generator(SEED); 
     std::normal_distribution<double> distribution(0.0, 1.0);
 
     
@@ -138,7 +139,7 @@ int main() {
     auto endTime = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = endTime - startTime;
 
-    std::cout << "Simulazione completata in: " << elapsed.count() << " secondi." << std::endl;
+    std::cout << "Simulazione CPU completata in: " << elapsed.count() << " secondi." << std::endl;
 
     // 4. Calcolo VaR (Post-processing)
     std::cout << "Calcolo del VaR..." << std::endl;

@@ -18,6 +18,7 @@ const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
 const int N_SIMULATIONS = 10'000'000;
 const double T_YEARS = 10.0;
 const double CONFIDENCE_LEVEL = 0.99;
+const int SEED = 12345UL;
 
 // Caricamento dati da CSV
 std::vector<double> readPrices(const std::string& filename) {
@@ -93,19 +94,22 @@ int main(void) {
     std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
 
     // Caricamento dati
+    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     auto prices = readPrices(CSV_FILENAME);
-    std::cout << "Letti " << prices.size() << " prezzi\n";
+    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
     // Calcolo parametri
-    double S0, drift, vol;
-    calculateParameters(prices, S0, drift, vol);
+    double S0, drift, volatilita;
+    calculateParameters(prices, S0, drift, volatilita);
 
-    std::cout << "S0: " << S0 << "\n";
-    std::cout << "Drift ann.: " << drift * 100 << "%\n";
-    std::cout << "Vol ann.: " << vol * 100 << "%\n";
+    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
 
-    double driftTerm = (drift - 0.5 * vol * vol) * T_YEARS;
-    double volTerm   = vol * std::sqrt(T_YEARS);
+    std::cout << "\nAvvio Simulazione (" << N_SIMULATIONS << " iterazioni)..." << std::endl;
+
+    double driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
+    double volTerm   = volatilita * std::sqrt(T_YEARS);
 
     // Allocazione variabile su GPU per simulazioni
     double* d_sim;
@@ -118,13 +122,14 @@ int main(void) {
     // Avvio timer
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    monteCarloKernel<<<gridDim, blockDim>>>(d_sim, N_SIMULATIONS, S0, driftTerm, volTerm, 12345UL);
+    monteCarloKernel<<<gridDim, blockDim>>>(d_sim, N_SIMULATIONS, S0, driftTerm, volTerm, SEED);
     cudaDeviceSynchronize();
     
     // Termine timer
     auto t1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Monte Carlo GPU: " << std::chrono::duration<double>(t1 - t0).count() << " s\n";
-
+    std::chrono::duration<double> elapsed = t1-t0;
+    std::cout << "Simulazione GPU completata in: " << elapsed.count() << " secondi." << std::endl;
+    
     // Trasferimento prezzi simulati da GPU a CPU
     std::vector<double> simulatedPrices(N_SIMULATIONS);
     cudaMemcpy(simulatedPrices.data(), d_sim, N_SIMULATIONS * sizeof(double), cudaMemcpyDeviceToHost);
@@ -132,18 +137,25 @@ int main(void) {
     cudaFree(d_sim);
 
     // Calcolo VaR
+    std::cout << "Calcolo del VaR..." << std::endl;
+    t0 = std::chrono::high_resolution_clock::now();
+
     std::sort(simulatedPrices.begin(), simulatedPrices.end());
+
+    t1 = std::chrono::high_resolution_clock::now();
+    elapsed = t1-t0;
+    std::cout << "Tempo sort: " << elapsed.count() << " secondi." << std::endl;
 
     int cutoff = static_cast<int>(N_SIMULATIONS * (1.0 - CONFIDENCE_LEVEL));
     double priceAtRisk = simulatedPrices[cutoff];
 
-    double varAbs = S0 - priceAtRisk;
-    double varPct = (varAbs / S0) * 100.0;
+    double varAbsolute = S0 - priceAtRisk;
+    double varPercent = (varAbsolute / S0) * 100.0;
 
-    std::cout << "\nVaR " << CONFIDENCE_LEVEL * 100 << "% (" << T_YEARS << " anni)\n";
-    std::cout << "Prezzo peggiore: " << priceAtRisk << "\n";
-    std::cout << "Perdita stimata: " << varAbs
-              << " (" << varPct << "%)\n";
+    std::cout << "Risultato VaR " << (CONFIDENCE_LEVEL * 100) << "% (" << T_YEARS << " anni):" << std::endl;
+    std::cout << "Prezzo peggiore atteso (" << ((1.0 - CONFIDENCE_LEVEL) * 100) << "% dei casi): " << priceAtRisk << std::endl;
+    std::cout << "Perdita Massima Stimata: " << varAbsolute << " (" << varPercent << "%)" << std::endl;
+
 
     return 0;
 }
