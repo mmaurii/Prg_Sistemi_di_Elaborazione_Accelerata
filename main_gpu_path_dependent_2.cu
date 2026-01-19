@@ -21,6 +21,7 @@ const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 
+
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
     std::vector<float> prices;
@@ -72,15 +73,29 @@ void calculateParameters(const std::vector<float>& prices, float& S0, float& dri
 }
 
 // Kernel cuda per simulazioni Monte Carlo
-__global__ void monteCarloKernel(float* out,int n,float S0,float driftTerm,float volTerm,unsigned long seed) {
+__global__ void monteCarloKernel(float *dResults, float S0, float driftPart, float volPart, int nSimulations, int nDays) {
+    // Calcolo ID globale del thread
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= n) return;
 
-    curandStatePhilox4_32_10_t state;
-    curand_init(seed, idx, 0, &state);
+    if (idx < nSimulations) {
+        // Inizializza lo stato del generatore di numeri casuali
+        curandStatePhilox4_32_10_t state;
+        curand_init(SEED, idx, 0, &state);        
 
-    float Z = curand_normal(&state);
-    out[idx] = S0 * exp(driftTerm + volTerm * Z);
+        float logSum = 0.0; // Accumuliamo qui invece di moltiplicare il prezzo
+        
+        // --- CICLO PATH-DEPENDENT (Il cuore del calcolo) ---
+        for (int t = 0; t < nDays; ++t) {
+            // Genera numero casuale distribuzione normale
+            float Z = curand_normal(&state);
+            
+            // Aggiorna rendita logaritmica cumulativa
+            logSum += driftPart + volPart * Z;
+        }
+
+        // Scriviamo solo il risultato finale in memoria globale
+        dResults[idx] = S0 * expf(logSum);
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -106,29 +121,30 @@ int main(int argc, char* argv[]) {
     std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
     std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
 
-    std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
+    const float DT = 1.0 / static_cast<float>(DAYS_OPEN_IN_YEAR);
+    const float driftStep = (drift - 0.5 * volatilita * volatilita) * DT;
+    const float volStep = volatilita * std::sqrt(DT);
 
-    float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
-    float volTerm   = volatilita * std::sqrt(T_YEARS);
+    std::cout << "\nAvvio simulazione (" << nSimulations << " cammini x " << T_YEARS << " anni)..." << std::endl;
 
     // Allocazione variabile su GPU per simulazioni
-    float* d_sim;
-    cudaMalloc(&d_sim, nSimulations * sizeof(float));
+    float* dSim;
+    cudaMalloc(&dSim, nSimulations * sizeof(float));
     
     // Definizione griglia e blocchi 1D e 1D
     dim3 blockDim(256, 1, 1);
     dim3 gridDim((nSimulations + blockDim.x - 1) / blockDim.x, 1, 1);
 
-    monteCarloKernel<<<gridDim, blockDim>>>(d_sim, nSimulations, S0, driftTerm, volTerm, SEED);
-        
+    monteCarloKernel<<<gridDim, blockDim>>>(dSim, S0, driftStep, volStep, nSimulations, DAYS_OPEN_IN_YEAR * T_YEARS);
+    
     // Trasferimento prezzi simulati da GPU a CPU
     std::vector<float> simulatedPortfolioValues(nSimulations);
-    cudaMemcpy(simulatedPortfolioValues.data(), d_sim, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(simulatedPortfolioValues.data(), dSim, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
 
-    cudaFree(d_sim);
+    cudaFree(dSim);
 
-    // Calcolo VaR
-    std::cout << "Calcolo del VaR..." << std::endl;
+    // Analisi dei risultati
+    std::cout << "Analisi dei risultati..." << std::endl;
 
     std::sort(simulatedPortfolioValues.begin(), simulatedPortfolioValues.end());
 

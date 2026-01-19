@@ -13,6 +13,9 @@
 // CUDA
 #include <cuda.h>
 #include <curand_kernel.h>
+#include <thrust/sort.h>
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
 
 // Configurazione
 const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
@@ -112,25 +115,28 @@ int main(int argc, char* argv[]) {
     float volTerm   = volatilita * std::sqrt(T_YEARS);
 
     // Allocazione variabile su GPU per simulazioni
-    float* d_sim;
-    cudaMalloc(&d_sim, nSimulations * sizeof(float));
+    float* dSim;
+    cudaMalloc(&dSim, nSimulations * sizeof(float));
     
     // Definizione griglia e blocchi 1D e 1D
     dim3 blockDim(256, 1, 1);
     dim3 gridDim((nSimulations + blockDim.x - 1) / blockDim.x, 1, 1);
 
-    monteCarloKernel<<<gridDim, blockDim>>>(d_sim, nSimulations, S0, driftTerm, volTerm, SEED);
-        
+    monteCarloKernel<<<gridDim, blockDim>>>(dSim, nSimulations, S0, driftTerm, volTerm, SEED);
+    cudaDeviceSynchronize();
+
+    // Wrapping del puntatore raw per thrust (sort)
+    thrust::device_ptr<float> dPtr(dSim);
+    thrust::sort(dPtr, dPtr + nSimulations);
+
     // Trasferimento prezzi simulati da GPU a CPU
     std::vector<float> simulatedPortfolioValues(nSimulations);
-    cudaMemcpy(simulatedPortfolioValues.data(), d_sim, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(simulatedPortfolioValues.data(), dSim, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
 
-    cudaFree(d_sim);
+    cudaFree(dSim);
 
-    // Calcolo VaR
-    std::cout << "Calcolo del VaR..." << std::endl;
-
-    std::sort(simulatedPortfolioValues.begin(), simulatedPortfolioValues.end());
+    // Analisi dei risultati
+    std::cout << "Analisi dei risultati..." << std::endl;
 
     // Scenario Peggiore (1% percentile - Potential Downside)
     int idxWorst = (int)(nSimulations * 0.01f);
