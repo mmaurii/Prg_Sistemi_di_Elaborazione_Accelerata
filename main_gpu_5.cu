@@ -99,7 +99,8 @@ __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float
 }
 
 int main(int argc, char* argv[]) {
-// Valore di default se l'utente non inserisce argomenti
+    // Valore di default se l'utente non inserisce argomenti
+    // Il numero di simulazioni deve essere multiplo di 4
     long nSimulations = 10000000; 
     if (argc > 1) {
         // Converte l'argomento della riga di comando in numero

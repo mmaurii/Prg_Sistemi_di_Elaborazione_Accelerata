@@ -26,6 +26,7 @@ const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 const int N_CYCLES = 4;
 const int SIMS_PER_THREAD = 4 * N_CYCLES; // Ogni thread calcola 4 simulazioni in 4 cicli
+// Il numero di simulazioni deve essere multiplo di SIMS_PER_THREAD
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -136,50 +137,53 @@ int main(int argc, char* argv[]) {
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
 
-    // Allocazione pinned memori per salvare simulazioni
-    float* dSim;
-    cudaMallocHost(&dSim, nSimulations * sizeof(float));
+    // Allocazione variabile su GPU per salvare simulazioni su device
+    float* dSimDevice;
+    cudaMalloc(&dSimDevice, nSimulations * sizeof(float));
+    
+    // Allocazione pinned memory per salvare simulazioni su host
+    float* dSimHost;
+    cudaMallocHost(&dSimHost, nSimulations * sizeof(float));
 
     // Definizione griglia e blocchi 1D e 1D
     dim3 blockDim(256, 1, 1);
     dim3 gridDim((nSimulations + (blockDim.x * SIMS_PER_THREAD) - 1) / (blockDim.x * SIMS_PER_THREAD));
 
-    monteCarloKernel<<<gridDim, blockDim>>>(dSim, nSimulations, S0, driftTerm, volTerm, SEED);
+    monteCarloKernel<<<gridDim, blockDim>>>(dSimDevice, nSimulations, S0, driftTerm, volTerm, SEED);
     cudaDeviceSynchronize();
 
     // Wrapping del puntatore raw per thrust (sort)
-    thrust::device_ptr<float> dPtr(dSim);
+    thrust::device_ptr<float> dPtr(dSimDevice);
     thrust::sort(dPtr, dPtr + nSimulations);
 
-    // Trasferimento prezzi simulati da GPU a CPU
-    std::vector<float> simulatedPortfolioValues(nSimulations);
-    cudaMemcpy(simulatedPortfolioValues.data(), dSim, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFreeHost(dSim);
-
+    cudaMemcpy(dSimHost, dSimDevice, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
+    
     // Analisi dei risultati
     std::cout << "Analisi dei risultati..." << std::endl;
-
+    
     // Scenario Peggiore (1% percentile - Potential Downside)
     int idxWorst = (int)(nSimulations * 0.01f);
-    float priceWorst = simulatedPortfolioValues[idxWorst];
+    float priceWorst = dSimHost[idxWorst];
     float portfolioWorst = CAPITALE_INIZIALE * (priceWorst / S0);
-
+    
     // Scenario Mediano (50% percentile - Valore più probabile)
     int idxMed = (int)(nSimulations * 0.50f);
-    float priceMed = simulatedPortfolioValues[idxMed];
+    float priceMed = dSimHost[idxMed];
     float portfolioMed = CAPITALE_INIZIALE * (priceMed / S0);
-
+    
     // Scenario Migliore (99% percentile - Potential Upside)
     int idxBest = (int)(nSimulations * 0.99f);
-    float priceBest = simulatedPortfolioValues[idxBest];
+    float priceBest = dSimHost[idxBest];
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
-
+    
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
     std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
     std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
     std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
 
+    cudaFree(dSimDevice);
+    cudaFreeHost(dSimHost);
+    
     return 0;
 }

@@ -24,9 +24,6 @@ const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
-const int N_CYCLES = 2;
-const int SIMS_PER_THREAD = 4 * N_CYCLES; // Ogni thread calcola 4 simulazioni in 4 cicli
-// Il numero di simulazioni deve essere multiplo di SIMS_PER_THREAD
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -80,38 +77,30 @@ void calculateParameters(const std::vector<float>& prices, float& S0, float& dri
 
 // Kernel cuda per simulazioni Monte Carlo
 __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float driftTerm, float volTerm, unsigned long seed) {
-    // Indice globale del thread e passo (stride) della griglia
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int baseIdx = tid * SIMS_PER_THREAD;
 
-    if (baseIdx+SIMS_PER_THREAD > n) return;
+    if (tid * 4 >= n) return; // Ogni thread calcola 4 simulazioni
 
-    float4 Z;
-    float4 res;
     curandStatePhilox4_32_10_t state;
     curand_init(seed, tid, 0, &state);
+
+    // Genero 4 numeri casuali in un colpo solo (istruzione vettoriale)
+    float4 Z = curand_normal4(&state);
     
-    #pragma unroll
-    for (int i = 0; i < N_CYCLES; i++) {
-        int currentOffset = i * 4;
+    float4 res;
+    // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)
+    res.x = S0 * __expf(driftTerm + volTerm * Z.x);
+    res.y = S0 * __expf(driftTerm + volTerm * Z.y);
+    res.z = S0 * __expf(driftTerm + volTerm * Z.z);
+    res.w = S0 * __expf(driftTerm + volTerm * Z.w);
 
-        // Genero 4 numeri casuali in un colpo solo (istruzione vettoriale)
-        Z = curand_normal4(&state);
-        
-        // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)
-        res.x = S0 * __expf(driftTerm + volTerm * Z.x);
-        res.y = S0 * __expf(driftTerm + volTerm * Z.y);
-        res.z = S0 * __expf(driftTerm + volTerm * Z.z);
-        res.w = S0 * __expf(driftTerm + volTerm * Z.w);
-
-        // Scrittura vettorizzata in memoria globale (1 transazione per 4 float)
-        reinterpret_cast<float4*>(&out[baseIdx + currentOffset])[0] = res;
-    }
+    // Scrittura vettorizzata in memoria globale (1 transazione per 4 float)
+    reinterpret_cast<float4*>(out)[tid] = res;
 }
 
 int main(int argc, char* argv[]) {
     // Valore di default se l'utente non inserisce argomenti
-    // Il numero di simulazioni deve essere multiplo di SIMS_PER_THREAD
+    // Il numero di simulazioni deve essere multiplo di 4
     long nSimulations = 10000000; 
     if (argc > 1) {
         // Converte l'argomento della riga di comando in numero
@@ -138,45 +127,48 @@ int main(int argc, char* argv[]) {
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
 
-    // Allocazione variabile su GPU per simulazioni
-    float* dSim;
-    cudaMalloc(&dSim, nSimulations * sizeof(float));
+    // Allocazione variabile su GPU per salvare simulazioni su device
+    float* dSimDevice;
+    cudaMalloc(&dSimDevice, nSimulations * sizeof(float));
     
     // Definizione griglia e blocchi 1D e 1D
     dim3 blockDim(256, 1, 1);
-    dim3 gridDim((nSimulations + (blockDim.x * SIMS_PER_THREAD) - 1) / (blockDim.x * SIMS_PER_THREAD));
+    // L' implementazione andrebbe adattata nel caso il numero di simulazioni non sia multiplo di 4
+    dim3 gridDim((nSimulations + (blockDim.x*4) - 1) / (blockDim.x*4), 1, 1);
 
-    monteCarloKernel<<<gridDim, blockDim>>>(dSim, nSimulations, S0, driftTerm, volTerm, SEED);
+    monteCarloKernel<<<gridDim, blockDim>>>(dSimDevice, nSimulations, S0, driftTerm, volTerm, SEED);
     cudaDeviceSynchronize();
 
     // Wrapping del puntatore raw per thrust (sort)
-    thrust::device_ptr<float> dPtr(dSim);
+    thrust::device_ptr<float> dPtr(dSimDevice);
     thrust::sort(dPtr, dPtr + nSimulations);
 
-    // Trasferimento prezzi simulati da GPU a CPU
-    std::vector<float> simulatedPortfolioValues(nSimulations);
-    cudaMemcpy(simulatedPortfolioValues.data(), dSim, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFree(dSim);
-
+    
     // Analisi dei risultati
-    std::cout << "Analisi dei risultati..." << std::endl;
-
-    // Scenario Peggiore (1% percentile - Potential Downside)
+    float priceWorst, priceMed, priceBest;
+    
     int idxWorst = (int)(nSimulations * 0.01f);
-    float priceWorst = simulatedPortfolioValues[idxWorst];
+    int idxMed   = (int)(nSimulations * 0.50f);
+    int idxBest  = (int)(nSimulations * 0.99f);
+
+    // Copia da (dSim + offset) a variabile CPU
+    cudaMemcpy(&priceWorst, dSim + idxWorst, sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&priceMed,   dSim + idxMed,   sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&priceBest,  dSim + idxBest,  sizeof(float), cudaMemcpyDeviceToHost);
+    
+    cudaFree(dSimDevice);
+    
+    std::cout << "Analisi dei risultati..." << std::endl;
+    
+    // Scenario Peggiore (1% percentile - Potential Downside)
     float portfolioWorst = CAPITALE_INIZIALE * (priceWorst / S0);
-
+    
     // Scenario Mediano (50% percentile - Valore più probabile)
-    int idxMed = (int)(nSimulations * 0.50f);
-    float priceMed = simulatedPortfolioValues[idxMed];
     float portfolioMed = CAPITALE_INIZIALE * (priceMed / S0);
-
+    
     // Scenario Migliore (99% percentile - Potential Upside)
-    int idxBest = (int)(nSimulations * 0.99f);
-    float priceBest = simulatedPortfolioValues[idxBest];
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
-
+    
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
     std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
