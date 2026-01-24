@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
         // Converte l'argomento della riga di comando in numero
         nSimulations = std::stol(argv[1]);
     }
-    std::cout << "=== Monte Carlo VaR CPU Baseline ===" << std::endl;
+    std::cout << "=== Monte Carlo CPU Baseline ===" << std::endl;
     
     // 1. Caricamento Dati
     std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
@@ -149,9 +149,6 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Simulazione CPU completata in: " << elapsed.count() << " secondi." << std::endl;
 
-    // 4. Calcolo VaR (Post-processing)
-    std::cout << "Calcolo del VaR..." << std::endl;
-    
     startTime = std::chrono::high_resolution_clock::now();
 
     // Ordiniamo per trovare il percentile

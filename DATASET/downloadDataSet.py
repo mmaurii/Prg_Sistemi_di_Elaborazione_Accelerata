@@ -6,15 +6,20 @@ import yfinance as yf
 import pandas as pd
 
 # 1. Scarica i dati per gli ultimi 10 anni
-dirName = "dataset"
-fileName = "msci_world_prezzi.csv"
+dirName = "DATASET"
+# fileName = "msci_world_prezzi.csv"
+# fileName = "S&P500_prezzi.csv"
+# fileName = "N225_prezzi.csv"
+fileName = "GDAXI_prezzi.csv"
 
 path = os.path.join(dirName, fileName)
 
 if not os.path.isfile(path):
-    ticker = "IWDA.AS"
-    #ticker = "^GSPC"  # Usato per testare con l'S&P 500
-    dati = yf.download(ticker, start="2009-9-25", end="2025-12-05")
+    # ticker = "IWDA.AS" # Usato per testare con MSCI World (mondo - globale)
+    # ticker = "^GSPC"  # Usato per testare con l'S&P 500 (USA - America)
+    # ticker = "^N225"  # Usato per testare con Nikkei 225 (Giappone - Asia)
+    ticker = "^GDAXI"  # Usato per testare con DAX Performance Index (Germania - Europa)
+    dati = yf.download(ticker, start="1800-9-25", end="2025-12-05")
 
     # 2. Salva solo i prezzi di chiusura in un file CSV
     prezzi_chiusura = dati['Close']

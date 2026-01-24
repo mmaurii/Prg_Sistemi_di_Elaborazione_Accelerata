@@ -17,11 +17,9 @@
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
 #include <cuda_fp16.h>
-#include <nvtx3/nvToolsExt.h> 
-// Se non trovi nvtx3, usa #include <nvToolsExt.h>
 
 // Configurazione
-const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
+const std::string CSV_FILENAME = "DATASET/S&P500_prezzi.csv";
 const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
@@ -77,38 +75,27 @@ void calculateParameters(const std::vector<float>& prices, float& S0, float& dri
     vol   = stdev * std::sqrt(DAYS_OPEN_IN_YEAR);
 }
 
-// 1. KERNEL DI INIZIALIZZAZIONE (Si lancia UNA SOLA VOLTA)
-__global__ void initRNG(curandStatePhilox4_32_10_t* states, unsigned long seed, int nThreads) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < nThreads) {
-        curand_init(seed, tid, 0, &states[tid]);
-    }
-}
-
 // Kernel cuda per simulazioni Monte Carlo
-__global__ void monteCarloKernel(float* __restrict__ out, curandStatePhilox4_32_10_t* states, int nCycles,float S0, float driftTerm, float volTerm) {
+__global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float driftTerm, float volTerm, unsigned long seed) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride = gridDim.x * blockDim.x;
 
-    // Ogni thread carica il SUO stato personale dalla memoria globale
-    // Nota: copiamo lo stato in registro locale per velocità durante il loop
-    curandStatePhilox4_32_10_t localState = states[tid]; 
+    if (tid * 4 >= n) return; // Ogni thread calcola 4 simulazioni
 
+    curandStatePhilox4_32_10_t state;
+    curand_init(seed, tid, 0, &state);
+
+    // Genero 4 numeri casuali in un colpo solo (istruzione vettoriale)
+    float4 Z = curand_normal4(&state);
+    
     float4 res;
-    float4 Z;
+    // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)
+    res.x = S0 * __expf(driftTerm + volTerm * Z.x);
+    res.y = S0 * __expf(driftTerm + volTerm * Z.y);
+    res.z = S0 * __expf(driftTerm + volTerm * Z.z);
+    res.w = S0 * __expf(driftTerm + volTerm * Z.w);
 
-    for (size_t i = tid; i < nCycles; i += stride) {
-        // Generazione veloce (lo stato è già pronto!)
-        Z = curand_normal4(&localState);
-
-        res.x = S0 * __expf(driftTerm + volTerm * Z.x);
-        res.y = S0 * __expf(driftTerm + volTerm * Z.y);
-        res.z = S0 * __expf(driftTerm + volTerm * Z.z);
-        res.w = S0 * __expf(driftTerm + volTerm * Z.w);
-
-        reinterpret_cast<float4*>(out)[i] = res;
-    }
-
+    // Scrittura vettorizzata in memoria globale (1 transazione per 4 float)
+    reinterpret_cast<float4*>(out)[tid] = res;
 }
 
 int main(int argc, char* argv[]) {
@@ -140,33 +127,22 @@ int main(int argc, char* argv[]) {
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
 
+    // Allocazione variabile su GPU per salvare simulazioni su device
+    float* dSimDevice;
+    cudaMalloc(&dSimDevice, nSimulations * sizeof(float));
+    
     // Definizione griglia e blocchi 1D e 1D
     dim3 blockDim(256, 1, 1);
     // L' implementazione andrebbe adattata nel caso il numero di simulazioni non sia multiplo di 4
     dim3 gridDim((nSimulations + (blockDim.x*4) - 1) / (blockDim.x*4), 1, 1);
 
-    int totalThreads = gridDim.x * blockDim.x;
-    int nCycles=nSimulations/4;
-    
-    // Allocazione variabile su GPU per salvare simulazioni su device
-    float* dSimDevice;
-    cudaMalloc(&dSimDevice, nSimulations * sizeof(float));
-    // Allocazione stati RNG
-    curandStatePhilox4_32_10_t* dStatesDevice;
-    cudaMalloc(&dStatesDevice, totalThreads * sizeof(curandStatePhilox4_32_10_t));
-
-    std::cout << "Inizializzazione RNG..." << std::endl;
-    initRNG<<<gridDim, blockDim>>>(dStatesDevice, SEED, totalThreads);
-    cudaDeviceSynchronize(); // Aspettiamo che finisca
-
-    monteCarloKernel<<<gridDim, blockDim>>>(dSimDevice, dStatesDevice, nCycles, S0, driftTerm, volTerm);
+    monteCarloKernel<<<gridDim, blockDim>>>(dSimDevice, nSimulations, S0, driftTerm, volTerm, SEED);
     cudaDeviceSynchronize();
 
     // Wrapping del puntatore raw per thrust (sort)
     thrust::device_ptr<float> dPtr(dSimDevice);
     thrust::sort(dPtr, dPtr + nSimulations);
 
-    
     // Analisi dei risultati
     float priceWorst, priceMed, priceBest;
     
@@ -180,7 +156,6 @@ int main(int argc, char* argv[]) {
     cudaMemcpy(&priceBest,  dSimDevice + idxBest,  sizeof(float), cudaMemcpyDeviceToHost);
     
     cudaFree(dSimDevice);
-    cudaFree(dStatesDevice);
     
     std::cout << "Analisi dei risultati..." << std::endl;
     
@@ -194,10 +169,10 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
     
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
-    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
-    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
-    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
+    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
+    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
 
     return 0;
 }
