@@ -19,7 +19,7 @@ possibili per il kernel CUDA, seguendo le best practice per la programmazione GP
 
 // --- CONFIGURAZIONE 
 const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
-const float T_YEARS = 10.0;         // Orizzonte temporale: 10 anni
+const float T_YEARS = 1.0;         // Orizzonte temporale: 10 anni
 const int SEED = 12345;
 const float CAPITALE_INIZIALE = 10000.0; // Capitale iniziale investito
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
@@ -104,23 +104,23 @@ int main(int argc, char* argv[]) {
         // Converte l'argomento della riga di comando in numero
         nSimulations = std::stol(argv[1]);
     }
-    std::cout << "=== Monte Carlo CPU Baseline ===" << std::endl;
+//   std::cout << "=== Monte Carlo CPU Baseline ===" << std::endl;
     
     // 1. Caricamento Dati
-    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
+//    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     std::vector<float> prices = readPrices(CSV_FILENAME);
-    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
+  //  std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
     // 2. Calcolo Parametri
     float S0, drift, volatilita;
     calculateParameters(prices, S0, drift, volatilita);
     
-    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
-    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
-    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
+//    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+//    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+//    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
 
     // 3. Simulazione Monte Carlo Naive su CPU
-    std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
+//    std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
 
     std::vector<float> simulatedPortfolioValues(nSimulations);
     
@@ -130,12 +130,13 @@ int main(int argc, char* argv[]) {
     std::normal_distribution<float> distribution(0.0, 1.0);
 
     
-    // Timer Start
-    auto startTime = std::chrono::high_resolution_clock::now();
-
+    
     // Loop Principale (Collo di bottiglia)
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm = volatilita * std::sqrt(T_YEARS);
+    
+    // Timer Start
+    auto startTime = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < nSimulations; ++i) {
         float Z = distribution(generator); // Generazione numero casuale
@@ -145,9 +146,9 @@ int main(int argc, char* argv[]) {
 
     // Timer End
     auto endTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float> elapsed = endTime - startTime;
+    std::chrono::duration<float, std::milli> elapsed = endTime - startTime;
 
-    std::cout << "Simulazione CPU completata in: " << elapsed.count() << " secondi." << std::endl;
+    std::cout << "Simulazione CPU completata in: " << elapsed.count() << " ms." << std::endl;
 
     startTime = std::chrono::high_resolution_clock::now();
 
@@ -157,7 +158,7 @@ int main(int argc, char* argv[]) {
     // Timer End
     endTime = std::chrono::high_resolution_clock::now();
     elapsed = endTime - startTime;
-    std::cout << "Tempo sort: " << elapsed.count() << " secondi." << std::endl;
+    std::cout << "Tempo sort: " << elapsed.count() << " ms." << std::endl;
 
     // Scenario Peggiore (1% percentile - Potential Downside)
     int idxWorst = (int)(nSimulations * 0.01f);
@@ -175,9 +176,9 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
 
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
+  /*   std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
     std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
     std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
     std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
-    return 0;
+   */  return 0;
 }

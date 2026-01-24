@@ -117,12 +117,12 @@ int main(int argc, char* argv[]) {
         nSimulations = std::stol(argv[1]);
     }
 
-    std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
+    //    std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
 
     // Caricamento dati
-    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
+//    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     auto prices = readPrices(CSV_FILENAME);
-    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
+//    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
     // Calcolo parametri
     float S0, drift, volatilita;
@@ -136,6 +136,14 @@ int main(int argc, char* argv[]) {
 
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
+
+    float milliseconds = 0;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    // Inizio registrazione evento GPU
+    cudaEventRecord(start);
 
     // Allocazione variabile su GPU per salvare simulazioni su device
     float* dSimDevice;
@@ -158,6 +166,19 @@ int main(int argc, char* argv[]) {
 
     cudaMemcpy(dSimHost, dSimDevice, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
     
+    cudaFree(dSimDevice);
+    cudaFreeHost(dSimHost);
+    
+    // Fine registrazione evento GPU
+    cudaEventRecord(stop);
+    // Aspettiamo che l'evento "stop" sia stato registrato realmente
+    cudaEventSynchronize(stop);
+
+    // Calcolo delta
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
+
     // Analisi dei risultati
     std::cout << "Analisi dei risultati..." << std::endl;
     
@@ -182,8 +203,5 @@ int main(int argc, char* argv[]) {
     std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
     std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
 
-    cudaFree(dSimDevice);
-    cudaFreeHost(dSimHost);
-    
     return 0;
 }

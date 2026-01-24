@@ -127,6 +127,14 @@ int main(int argc, char* argv[]) {
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
 
+    float milliseconds = 0;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    // Inizio registrazione evento GPU
+    cudaEventRecord(start);
+
     // Allocazione variabile su GPU per salvare simulazioni su device
     float* dSimDevice;
     cudaMalloc(&dSimDevice, nSimulations * sizeof(float));
@@ -149,6 +157,19 @@ int main(int argc, char* argv[]) {
 
     cudaMemcpy(dSimHost, dSimDevice, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
     
+    cudaFree(dSimDevice);
+    cudaFreeHost(dSimHost);
+
+    // Fine registrazione evento GPU
+    cudaEventRecord(stop);
+    // Aspettiamo che l'evento "stop" sia stato registrato realmente
+    cudaEventSynchronize(stop);
+
+    // Calcolo delta
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
+
     // Analisi dei risultati
     std::cout << "Analisi dei risultati..." << std::endl;
     
@@ -173,8 +194,6 @@ int main(int argc, char* argv[]) {
     std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
     std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
 
-    cudaFree(dSimDevice);
-    cudaFreeHost(dSimHost);
     
     return 0;
 }

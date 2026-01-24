@@ -129,13 +129,10 @@ int main(int argc, char* argv[]) {
         index.vol   = sigma * std::sqrt(T_YEARS);            
     }
 
-    // --- CORREZIONE PINNED MEMORY ---
+    
     // Allocazione buffer Pinned per i risultati (3 float per ogni indice)
-    // 4 indici * 3 valori (worst, med, best)
     float* h_pinnedResults; 
     cudaMallocHost(&h_pinnedResults, 4 * 3 * sizeof(float)); 
-
-    auto startTime = std::chrono::high_resolution_clock::now();
     
     // FASE 1: Setup Sincrono (Malloc & Stream Create)
     for (auto& index : indexes) {
@@ -143,7 +140,7 @@ int main(int argc, char* argv[]) {
         cudaMalloc(&index.dSimDevice, nSimulations * sizeof(float));
     }
     
-    std::cout << "\nAvvio Simulazione GPU (Pinned Memory + Streams)..." << std::endl;
+//    std::cout << "\nAvvio Simulazione GPU (Pinned Memory + Streams)..." << std::endl;
     cudaDeviceSynchronize(); 
     
     // FASE 2: Esecuzione Asincrona
@@ -174,11 +171,25 @@ int main(int argc, char* argv[]) {
     
     // Attesa fine lavori
     cudaDeviceSynchronize();
+
+    // Pulizia memoria device
+    for (auto& index : indexes) {
+        cudaFree(index.dSimDevice);
+        cudaStreamDestroy(index.stream);
+    }
+
+    cudaFreeHost(h_pinnedResults);
     
-    auto endTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float,std::milli> elapsedMC = endTime - startTime;
-    std::cout << "TEMPO TOTALE: " << elapsedMC.count()<< " ms." << std::endl;
-        
+    // Fine registrazione evento GPU
+    cudaEventRecord(stop);
+    // Aspettiamo che l'evento "stop" sia stato registrato realmente
+    cudaEventSynchronize(stop);
+
+    // Calcolo delta
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
+    
     // FASE 3: Output e Pulizia
     int k = 0;
     for(auto& index : indexes) {
@@ -191,21 +202,12 @@ int main(int argc, char* argv[]) {
         float portfolioMed   = CAPITALE_INIZIALE * (index.priceMed / index.S0);
         float portfolioBest  = CAPITALE_INIZIALE * (index.priceBest / index.S0);
         
-        std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+/*         std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
         std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
         std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
         std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
-
-        if (index.dSimDevice != nullptr) {
-            cudaFree(index.dSimDevice);
-            index.dSimDevice = nullptr;
-        }
-        cudaStreamDestroy(index.stream);
-        k++;
+ */        k++;
     }
-
-    // Ricordati di liberare la memoria pinned!
-    cudaFreeHost(h_pinnedResults);
 
     return 0;
 }

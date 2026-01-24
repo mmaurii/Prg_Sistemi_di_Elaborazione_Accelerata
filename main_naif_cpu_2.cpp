@@ -36,8 +36,7 @@ const index indexes[4] = {
     {MSCI, CSV_FILENAME_MSCI},
     {SP500, CSV_FILENAME_SP500},
     {GDAXI, CSV_FILENAME_GDAXI},
-    {N225, CSV_FILENAME_N225}
-};
+    {N225, CSV_FILENAME_N225}};
 
 const float T_YEARS = 1.0; // Orizzonte temporale: 10 anni
 const int SEED = 12345;
@@ -131,11 +130,11 @@ void calculateParameters(const std::vector<float> &prices, float &S0, float &dri
 // --- MAIN ---
 int main(int argc, char *argv[])
 {
-    std::chrono::duration<float,std::milli> elapsedSort;
-    std::chrono::duration<float,std::milli> elapsedMC;
-    std::chrono::duration<float,std::milli> elapsedParam;
+    auto elapsedSort = std::chrono::duration<float, std::milli>::zero();
+    auto elapsedMC = std::chrono::duration<float, std::milli>::zero();
+    auto elapsedParam = std::chrono::duration<float, std::milli>::zero();
 
-    // Valore di default se l'utente non inserisce argomenti
+// Valore di default se l'utente non inserisce argomenti
     long nSimulations = 10000000;
 
     if (argc > 1)
@@ -144,13 +143,12 @@ int main(int argc, char *argv[])
         nSimulations = std::stol(argv[1]);
     }
 
-    
     for (const auto &index : indexes)
     {
         // 1. lettura dati
         std::vector<float> prices = readPrices(index.filename);
 
-        std::cout << "=== Monte Carlo CPU Baseline per " << index.name << " ===" << std::endl;
+ //       std::cout << "=== Monte Carlo CPU Baseline per " << index.name << " ===" << std::endl;
 
         // 2. Calcolo Parametri
         float S0, drift, volatilita;
@@ -158,29 +156,28 @@ int main(int argc, char *argv[])
         auto startTime = std::chrono::high_resolution_clock::now();
         calculateParameters(prices, S0, drift, volatilita);
         auto endTime = std::chrono::high_resolution_clock::now();
-        elapsedParam+= endTime - startTime;
-        
-        std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
-        std::cout << "Drift Annualizzato: " << drift << " (" << drift * 100 << "%)" << std::endl;
-        std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita * 100 << "%)" << std::endl;
+        elapsedParam += endTime - startTime;
+
+//        std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+//        std::cout << "Drift Annualizzato: " << drift << " (" << drift * 100 << "%)" << std::endl;
+//        std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita * 100 << "%)" << std::endl;
 
         // 3. Simulazione Monte Carlo Naive su CPU
-        std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
-        
+//        std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
+
         std::vector<float> simulatedIndexValues(nSimulations);
-        
+
         // Setup Random Number Generator (Standard C++)
         // Usiamo un seed fisso per riproducibilità dei risultati
         std::mt19937 generator(SEED);
         std::normal_distribution<float> distribution(0.0, 1.0);
-    
-        
-        // Timer Start
-        startTime = std::chrono::high_resolution_clock::now();
-        
+
         // Loop Principale (Collo di bottiglia)
         float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
         float volTerm = volatilita * std::sqrt(T_YEARS);
+
+        // Timer Start
+        startTime = std::chrono::high_resolution_clock::now();
 
         for (int i = 0; i < nSimulations; ++i)
         {
@@ -188,45 +185,45 @@ int main(int argc, char *argv[])
             float ST = S0 * std::exp(driftTerm + volTerm * Z); // Formula GBM
             simulatedIndexValues[i] = ST;
         }
-        
+
         // Timer End
         endTime = std::chrono::high_resolution_clock::now();
         elapsedMC += endTime - startTime;
-        
+
         startTime = std::chrono::high_resolution_clock::now();
-        
+
         // Ordiniamo per trovare il percentile
         std::sort(simulatedIndexValues.begin(), simulatedIndexValues.end());
-        
+
         // Timer End
         endTime = std::chrono::high_resolution_clock::now();
         elapsedSort += endTime - startTime;
-        
+
         // Scenario Peggiore (1% percentile - Potential Downside)
         int idxWorst = (int)(nSimulations * 0.01f);
         float priceWorst = simulatedIndexValues[idxWorst];
         float portfolioWorst = CAPITALE_INIZIALE * (priceWorst / S0);
-        
+
         // Scenario Mediano (50% percentile - Valore più probabile)
         int idxMed = (int)(nSimulations * 0.50f);
         float priceMed = simulatedIndexValues[idxMed];
         float portfolioMed = CAPITALE_INIZIALE * (priceMed / S0);
-        
+
         // Scenario Migliore (99% percentile - Potential Upside)
         int idxBest = (int)(nSimulations * 0.99f);
         float priceBest = simulatedIndexValues[idxBest];
         float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
-        
+
         std::cout << std::fixed << std::setprecision(2);
-        std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+  /*       std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
         std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
         std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
         std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
-    }
-    
+   */  }
+
     std::cout << "\nPARAMETRI: " << elapsedParam.count() << " ms." << std::endl;
     std::cout << "MONTECARLO: " << elapsedMC.count() << " ms." << std::endl;
-    std::cout << "SORT: " << elapsedParam.count() << " ms." << std::endl;
-    
+    std::cout << "SORT: " << elapsedSort.count() << " ms." << std::endl;
+
     return 0;
 }

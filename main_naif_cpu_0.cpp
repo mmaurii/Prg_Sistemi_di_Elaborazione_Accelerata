@@ -96,23 +96,23 @@ void calculateParameters(const std::vector<double>& prices, double& S0, double& 
 
 // --- MAIN ---
 int main() {
-    std::cout << "=== Monte Carlo VaR CPU Baseline ===" << std::endl;
+//    std::cout << "=== Monte Carlo VaR CPU Baseline ===" << std::endl;
     
     // 1. Caricamento Dati
-    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
+//    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     std::vector<double> prices = readPrices(CSV_FILENAME);
-    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
+  //  std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
     // 2. Calcolo Parametri
     double S0, drift, volatilita;
     calculateParameters(prices, S0, drift, volatilita);
     
-    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
-    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
-    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
+//    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+//    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+//    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
 
     // 3. Simulazione Monte Carlo Naive su CPU
-    std::cout << "\nAvvio Simulazione (" << N_SIMULATIONS << " iterazioni)..." << std::endl;
+//    std::cout << "\nAvvio Simulazione (" << N_SIMULATIONS << " iterazioni)..." << std::endl;
 
     std::vector<double> simulatedPrices(N_SIMULATIONS);
     
@@ -137,12 +137,12 @@ int main() {
 
     // Timer End
     auto endTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = endTime - startTime;
+    std::chrono::duration<double, std::milli> elapsed = endTime - startTime;
 
     std::cout << "Simulazione CPU completata in: " << elapsed.count() << " secondi." << std::endl;
 
     // 4. Calcolo VaR (Post-processing)
-    std::cout << "Calcolo del VaR..." << std::endl;
+//    std::cout << "Calcolo del VaR..." << std::endl;
     
     // Timer Start
     startTime = std::chrono::high_resolution_clock::now();
@@ -154,7 +154,7 @@ int main() {
     endTime = std::chrono::high_resolution_clock::now();
     elapsed = endTime - startTime;
 
-    std::cout << "Tempo sort: " << elapsed.count() << " secondi." << std::endl;
+    std::cout << "Tempo sort: " << elapsed.count() << " ms." << std::endl;
 
     // Indice per il percentile (es. 5% per confidenza 95%)
     int indexCutoff = static_cast<int>(N_SIMULATIONS * (1.0 - CONFIDENCE_LEVEL));
@@ -162,9 +162,9 @@ int main() {
     double varAbsolute = S0 - priceAtRisk;
     double varPercent = (varAbsolute / S0) * 100.0;
 
-    std::cout << "Risultato VaR " << (CONFIDENCE_LEVEL * 100) << "% (" << T_YEARS << " anni):" << std::endl;
+  /*   std::cout << "Risultato VaR " << (CONFIDENCE_LEVEL * 100) << "% (" << T_YEARS << " anni):" << std::endl;
     std::cout << "Prezzo peggiore atteso (" << ((1.0 - CONFIDENCE_LEVEL) * 100) << "% dei casi): " << priceAtRisk << std::endl;
     std::cout << "Perdita Massima Stimata: " << varAbsolute << " (" << varPercent << "%)" << std::endl;
-
+ */
     return 0;
 }
