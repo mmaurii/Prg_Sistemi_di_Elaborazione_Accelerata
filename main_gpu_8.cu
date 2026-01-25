@@ -128,11 +128,11 @@ int main(int argc, char* argv[]) {
     float S0, drift, volatilita;
     calculateParameters(prices, S0, drift, volatilita);
 
-    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
-    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
-    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
+//    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+//    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+//    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
 
-    std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
+  //  std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
 
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
@@ -167,20 +167,8 @@ int main(int argc, char* argv[]) {
     cudaMemcpy(dSimHost, dSimDevice, nSimulations * sizeof(float), cudaMemcpyDeviceToHost);
     
     cudaFree(dSimDevice);
-    cudaFreeHost(dSimHost);
-    
-    // Fine registrazione evento GPU
-    cudaEventRecord(stop);
-    // Aspettiamo che l'evento "stop" sia stato registrato realmente
-    cudaEventSynchronize(stop);
-
-    // Calcolo delta
-    cudaEventElapsedTime(&milliseconds, start, stop);
-
-    std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
-
     // Analisi dei risultati
-    std::cout << "Analisi dei risultati..." << std::endl;
+//    std::cout << "Analisi dei risultati..." << std::endl;
     
     // Scenario Peggiore (1% percentile - Potential Downside)
     int idxWorst = (int)(nSimulations * 0.01f);
@@ -198,10 +186,21 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
     
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
-    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
-    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
-    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+//    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
+//    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
+ //   std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
+//    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+    cudaFreeHost(dSimHost);
+    
+    // Fine registrazione evento GPU
+    cudaEventRecord(stop);
+    // Aspettiamo che l'evento "stop" sia stato registrato realmente
+    cudaEventSynchronize(stop);
+
+    // Calcolo delta
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
 
     return 0;
 }

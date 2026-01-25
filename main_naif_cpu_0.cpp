@@ -122,12 +122,13 @@ int main() {
     std::normal_distribution<double> distribution(0.0, 1.0);
 
     
-    // Timer Start
-    auto startTime = std::chrono::high_resolution_clock::now();
-
+    
     // Loop Principale (Collo di bottiglia)
     double driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     double volTerm = volatilita * std::sqrt(T_YEARS);
+
+    // Timer Start
+    auto startTime = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < N_SIMULATIONS; ++i) {
         double Z = distribution(generator); // Generazione numero casuale
@@ -139,7 +140,7 @@ int main() {
     auto endTime = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> elapsed = endTime - startTime;
 
-    std::cout << "Simulazione CPU completata in: " << elapsed.count() << " secondi." << std::endl;
+    std::cout << "Simulazione CPU completata in: " << elapsed.count() << " ms." << std::endl;
 
     // 4. Calcolo VaR (Post-processing)
 //    std::cout << "Calcolo del VaR..." << std::endl;

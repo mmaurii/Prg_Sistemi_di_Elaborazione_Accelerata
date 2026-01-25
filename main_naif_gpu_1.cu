@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
    std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
 
     // Calcolo VaR
-//    std::cout << "Calcolo del VaR..." << std::endl;
+    //    std::cout << "Calcolo del VaR..." << std::endl;
 
     std::sort(simulatedPortfolioValues.begin(), simulatedPortfolioValues.end());
 

@@ -130,9 +130,9 @@ void calculateParameters(const std::vector<float> &prices, float &S0, float &dri
 // --- MAIN ---
 int main(int argc, char *argv[])
 {
-    auto elapsedSort = std::chrono::duration<float, std::milli>::zero();
-    auto elapsedMC = std::chrono::duration<float, std::milli>::zero();
-    auto elapsedParam = std::chrono::duration<float, std::milli>::zero();
+    auto elapsedSort = std::chrono::duration<double, std::milli>::zero();
+    auto elapsedMC = std::chrono::duration<double, std::milli>::zero();
+    auto elapsedParam = std::chrono::duration<double, std::milli>::zero();
 
 // Valore di default se l'utente non inserisce argomenti
     long nSimulations = 10000000;
