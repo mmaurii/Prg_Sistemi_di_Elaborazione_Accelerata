@@ -1,3 +1,10 @@
+/*
+    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
+    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
+    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
+    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
+*/
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -34,7 +41,7 @@ struct Index
     cudaStream_t stream = nullptr;
 };
 
-// Configurazione
+// CONFIGURAZIONE
 const std::string CSV_FILENAME_MSCI = "DATASET/msci_world_prezzi.csv";
 const std::string CSV_FILENAME_SP500 = "DATASET/S&P500_prezzi.csv";
 const std::string CSV_FILENAME_GDAXI = "DATASET/GDAXI_prezzi.csv";
@@ -52,7 +59,7 @@ Index indexes[4] = {
     {"N225", CSV_FILENAME_N225}
 };
 
-// ... (Funzioni readPrices e calculateParameters invariate, omesse per brevità) ...
+// FUNZIONI DI UTILITA'
 std::vector<float> readPrices(const std::string& filename) {
     std::vector<float> prices;
     std::ifstream file(filename);
@@ -79,7 +86,6 @@ void calculateParameters(const std::vector<float>& prices, float& S0, float& dri
     drift = mean * DAYS_OPEN_IN_YEAR;
     vol   = stdev * std::sqrt(static_cast<float>(DAYS_OPEN_IN_YEAR));
 }
-// ... (Fine funzioni helper) ...
 
 // Kernel cuda per simulazioni Monte Carlo
 __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float driftTerm, float volTerm, unsigned long seed) {
@@ -106,9 +112,15 @@ __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float
 
 int main(int argc, char* argv[]) {
     long nSimulations = 10000000; 
-    if (argc > 1) nSimulations = std::stol(argv[1]);
+    if (argc > 1) {
+        nSimulations = std::stol(argv[1]);
+    }
 
-    if (nSimulations % 4 != 0) nSimulations += (4 - (nSimulations % 4));
+    if (nSimulations % 4 != 0) {
+        nSimulations += (4 - (nSimulations % 4));
+    }
+
+    std::cout << "=== Monte Carlo GPU ===\n";
 
     dim3 blockDim(256);
     dim3 gridDim((nSimulations/4 + blockDim.x - 1) / blockDim.x);
@@ -137,44 +149,35 @@ int main(int argc, char* argv[]) {
     // Inizio registrazione evento GPU
     cudaEventRecord(start);
 
-
     // Allocazione buffer Pinned per i risultati (3 float per ogni indice)
-    float* h_pinnedResults; 
-    cudaMallocHost(&h_pinnedResults, 4 * 3 * sizeof(float)); 
+    float* hPinnedResults; 
+    cudaMallocHost(&hPinnedResults, 4 * 3 * sizeof(float)); 
     
-    // FASE 1: Setup Sincrono (Malloc & Stream Create)
+    // Setup Sincrono (Malloc & Stream Create)
     for (auto& index : indexes) {
         cudaStreamCreate(&index.stream);
         cudaMalloc(&index.dSimDevice, nSimulations * sizeof(float));
     }
-    
-//    std::cout << "\nAvvio Simulazione GPU (Pinned Memory + Streams)..." << std::endl;
-    cudaDeviceSynchronize(); 
-    
 
-
-    // FASE 2: Esecuzione Asincrona
+    // Esecuzione Asincrona
     int i = 0;
     for (auto& index : indexes) {
         
-        // A. Lancio Kernel
-        monteCarloKernel<<<gridDim, blockDim, 0, index.stream>>>(
-            index.dSimDevice, nSimulations, index.S0, index.drift, index.vol, SEED + i
-        );
+        monteCarloKernel<<<gridDim, blockDim, 0, index.stream>>>(index.dSimDevice, nSimulations, index.S0, index.drift, index.vol, SEED + i);
         
-        // B. Sort Asincrono
+        // Sort Asincrono
         thrust::sort(thrust::cuda::par.on(index.stream), 
                      thrust::device_pointer_cast(index.dSimDevice), 
                      thrust::device_pointer_cast(index.dSimDevice + nSimulations));
         
-        // C. Copia Asincrona su PINNED MEMORY 
+        // Copia Asincrona su PINNED MEMORY 
         // Calcoliamo gli offset nel buffer pinned
         // Struttura buffer: [Indice0_Worst, Indice0_Med, Indice0_Best, Indice1_Worst...]
         int baseOffset = i * 3;
         
-        cudaMemcpyAsync(&h_pinnedResults[baseOffset + 0], index.dSimDevice + idxWorst, sizeof(float), cudaMemcpyDeviceToHost, index.stream);
-        cudaMemcpyAsync(&h_pinnedResults[baseOffset + 1], index.dSimDevice + idxMed,   sizeof(float), cudaMemcpyDeviceToHost, index.stream);
-        cudaMemcpyAsync(&h_pinnedResults[baseOffset + 2], index.dSimDevice + idxBest,  sizeof(float), cudaMemcpyDeviceToHost, index.stream);
+        cudaMemcpyAsync(&hPinnedResults[baseOffset + 0], index.dSimDevice + idxWorst, sizeof(float), cudaMemcpyDeviceToHost, index.stream);
+        cudaMemcpyAsync(&hPinnedResults[baseOffset + 1], index.dSimDevice + idxMed,   sizeof(float), cudaMemcpyDeviceToHost, index.stream);
+        cudaMemcpyAsync(&hPinnedResults[baseOffset + 2], index.dSimDevice + idxBest,  sizeof(float), cudaMemcpyDeviceToHost, index.stream);
         
         i++;
     }
@@ -182,7 +185,7 @@ int main(int argc, char* argv[]) {
     // Attesa fine lavori
     cudaDeviceSynchronize();
     
-    // FASE 3: Output e Pulizia
+    // Output e Pulizia
     int k = 0;
     for(auto& index : indexes) {
         float portfolioWorst = CAPITALE_INIZIALE * (index.priceWorst / index.S0);
@@ -193,14 +196,14 @@ int main(int argc, char* argv[]) {
         cudaFree(index.dSimDevice);
         cudaStreamDestroy(index.stream);
         
-        /*         std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+        std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
         std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
         std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
         std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
-        */        k++;
+        k++;
     }
     
-    cudaFreeHost(h_pinnedResults);
+    cudaFreeHost(hPinnedResults);
     
     // Fine registrazione evento GPU
     cudaEventRecord(stop);

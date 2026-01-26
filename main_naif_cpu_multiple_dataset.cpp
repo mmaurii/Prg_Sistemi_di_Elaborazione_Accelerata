@@ -1,8 +1,8 @@
 /*
-Questo codice implementa una simulazione montecarlo partendo da dati storici scaricati da yfinance.
-Il codice parte con una soluzione naive su CPU e prosegue con una versione ottimizzata su GPU usando CUDA.
-L'obiettivo è confrontare le prestazioni delle due implementazioni e cercare di ottenere le prestazioni migliori
-possibili per il kernel CUDA, seguendo le best practice per la programmazione GPU, che abbiamo visto a lezione.
+    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
+    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
+    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
+    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
 */
 
 #include <iostream>
@@ -23,7 +23,7 @@ struct index
     std::string filename;
 };
 
-// --- CONFIGURAZIONE
+// CONFIGURAZIONE
 const std::string CSV_FILENAME_MSCI = "DATASET/msci_world_prezzi.csv";
 const std::string CSV_FILENAME_SP500 = "DATASET/S&P500_prezzi.csv";
 const std::string CSV_FILENAME_GDAXI = "DATASET/GDAXI_prezzi.csv";
@@ -43,7 +43,8 @@ const int SEED = 12345;
 const float CAPITALE_INIZIALE = 10000.0; // Capitale iniziale investito
 const int DAYS_OPEN_IN_YEAR = 252;       // Giorni borsa aperta in un anno
 
-// --- FUNZIONI DI UTILITÀ ---
+// FUNZIONI DI UTILITÀ 
+
 // Funzione per leggere i prezzi dal CSV
 std::vector<float> readPrices(const std::string &filename)
 {
@@ -135,20 +136,19 @@ int main(int argc, char *argv[])
     auto elapsedParam = std::chrono::duration<double, std::milli>::zero();
 
 // Valore di default se l'utente non inserisce argomenti
-    long nSimulations = 10000000;
+    long nSimulations = 1000000000;
 
     if (argc > 1)
     {
-        // Converte l'argomento della riga di comando in numero
         nSimulations = std::stol(argv[1]);
     }
 
     for (const auto &index : indexes)
     {
-        // 1. lettura dati
+        // lettura dati
         std::vector<float> prices = readPrices(index.filename);
 
- //       std::cout << "=== Monte Carlo CPU Baseline per " << index.name << " ===" << std::endl;
+       std::cout << "=== Monte Carlo NAIF CPU Multiple Dataset " << index.name << " ===" << std::endl;
 
         // 2. Calcolo Parametri
         float S0, drift, volatilita;
@@ -158,12 +158,12 @@ int main(int argc, char *argv[])
         auto endTime = std::chrono::high_resolution_clock::now();
         elapsedParam += endTime - startTime;
 
-//        std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
-//        std::cout << "Drift Annualizzato: " << drift << " (" << drift * 100 << "%)" << std::endl;
-//        std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita * 100 << "%)" << std::endl;
+        std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+        std::cout << "Drift Annualizzato: " << drift << " (" << drift * 100 << "%)" << std::endl;
+        std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita * 100 << "%)" << std::endl;
 
-        // 3. Simulazione Monte Carlo Naive su CPU
-//        std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
+        // Simulazione Monte Carlo Naive su CPU
+        std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
 
         std::vector<float> simulatedIndexValues(nSimulations);
 
@@ -215,11 +215,11 @@ int main(int argc, char *argv[])
         float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
 
         std::cout << std::fixed << std::setprecision(2);
-  /*       std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+        std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
         std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
         std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
         std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
-   */  }
+    }
 
     std::cout << "\nPARAMETRI: " << elapsedParam.count() << " ms." << std::endl;
     std::cout << "MONTECARLO: " << elapsedMC.count() << " ms." << std::endl;

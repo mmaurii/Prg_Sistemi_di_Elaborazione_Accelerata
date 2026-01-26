@@ -1,8 +1,8 @@
 /*
-Questo codice implementa una simulazione montecarlo partendo da dati storici scaricati da yfinance.
-Il codice parte con una soluzione naive su CPU e prosegue con una versione ottimizzata su GPU usando CUDA.
-L'obiettivo è confrontare le prestazioni delle due implementazioni e cercare di ottenere le prestazioni migliori
-possibili per il kernel CUDA, seguendo le best practice per la programmazione GPU, che abbiamo visto a lezione.
+    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
+    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
+    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
+    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
 */
 
 #include <iostream>
@@ -17,14 +17,14 @@ possibili per il kernel CUDA, seguendo le best practice per la programmazione GP
 #include <sstream>
 #include <iomanip>
 
-// --- CONFIGURAZIONE
+// CONFIGURAZIONE
 const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
-const double T_YEARS = 10.0;               // Orizzonte temporale: 10 anni
+const double T_YEARS = 1.0;               // Orizzonte temporale: 10 anni
 const double CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const int SEED = 12345;
 
-// --- FUNZIONI DI UTILITÀ ---
+// FUNZIONI DI UTILITÀ 
 
 // Funzione per leggere i prezzi dal CSV
 std::vector<double> readPrices(const std::string &filename)
@@ -109,7 +109,6 @@ void calculateParameters(const std::vector<double> &prices, double &S0, double &
     volatilita = stdev * std::sqrt(DAYS_OPEN_IN_YEAR);
 }
 
-// --- MAIN ---
 int main(int argc, char* argv[]) {
 // Valore di default se l'utente non inserisce argomenti
     long nSimulations = 10000000; 
@@ -118,27 +117,27 @@ int main(int argc, char* argv[]) {
         // Converte l'argomento della riga di comando in numero
         nSimulations = std::stol(argv[1]);
     }
- //   std::cout << "=== Monte Carlo VaR CPU Baseline ===" << std::endl;
+    std::cout << "=== Monte Carlo NAIF CPU Path Dependent ===" << std::endl;
 
-    // 1. Caricamento Dati
-//    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
+    // Caricamento Dati
+    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     std::vector<double> prices = readPrices(CSV_FILENAME);
-  //  std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
+    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
-    // 2. Calcolo Parametri
+    // Calcolo Parametri
     double S0, drift, volatilita;
     calculateParameters(prices, S0, drift, volatilita);
 
- //   std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
- //   std::cout << "Drift Annualizzato: " << drift << " (" << drift * 100 << "%)" << std::endl;
-//    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita * 100 << "%)" << std::endl;
+    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+    std::cout << "Drift Annualizzato: " << drift << " (" << drift * 100 << "%)" << std::endl;
+    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita * 100 << "%)" << std::endl;
 
     const double DT = 1.0 / static_cast<double>(DAYS_OPEN_IN_YEAR);
     const double driftStep = (drift - 0.5 * volatilita * volatilita) * DT;
     const double volStep = volatilita * std::sqrt(DT);
 
-    // 3. Simulazione Monte Carlo Naive su CPU
-//    std::cout << "\nAvvio simulazione (" << nSimulations << " cammini x " << T_YEARS << " anni)..." << std::endl;
+    // Simulazione Monte Carlo Naive su CPU
+    std::cout << "\nAvvio simulazione (" << nSimulations << " cammini x " << T_YEARS << " anni)..." << std::endl;
     std::vector<double> simulatedPortfolioValues(nSimulations);
 
     // Setup Random Number Generator (Standard C++)
@@ -173,7 +172,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Simulazione completata in: " << elapsed.count() << " ms." << std::endl;
 
     // Analisi dei risultati
-  //  std::cout << "Analisi dei risultati..." << std::endl;
+    std::cout << "Analisi dei risultati..." << std::endl;
     startTime = std::chrono::high_resolution_clock::now();
 
     std::sort(simulatedPortfolioValues.begin(), simulatedPortfolioValues.end());
@@ -198,10 +197,10 @@ int main(int argc, char* argv[]) {
     double portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
 
     std::cout << std::fixed << std::setprecision(2);
-/*     std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
-    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
-    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
-    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
- */
+    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " ) ---" << std::endl;
+    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
+    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
+    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+
     return 0;
 }

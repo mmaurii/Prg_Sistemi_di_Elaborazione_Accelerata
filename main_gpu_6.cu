@@ -1,3 +1,10 @@
+/*
+    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
+    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
+    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
+    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
+*/
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -18,15 +25,18 @@
 #include <thrust/execution_policy.h>
 #include <cuda_fp16.h>
 
-// Configurazione
+// CONFIGURAZIONE
 const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
 const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
-const int N_CYCLES = 2;
-const int SIMS_PER_THREAD = 4 * N_CYCLES; // Ogni thread calcola 4 simulazioni in 4 cicli
+const int N_CYCLES = 2;       // Numero di iterazioni del loop nel kernel
+const int FLOATS_PER_WI = 4;  // Ogni scrittura è un float4 (4 float)
+const int SIMS_PER_THREAD = N_CYCLES * FLOATS_PER_WI; // 2 * 4 = 8 simulazioni per thread
 // Il numero di simulazioni deve essere multiplo di SIMS_PER_THREAD
+
+// FUNZIONI DI UTILITA'
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -80,32 +90,30 @@ void calculateParameters(const std::vector<float>& prices, float& S0, float& dri
 
 // Kernel cuda per simulazioni Monte Carlo
 __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float driftTerm, float volTerm, unsigned long seed) {
-    // Indice globale del thread e passo (stride) della griglia
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int baseIdx = tid * SIMS_PER_THREAD;
+    int totalThreads = gridDim.x * blockDim.x;
 
-    if (baseIdx+SIMS_PER_THREAD > n) return;
-
-    float4 Z;
-    float4 res;
+    // Ogni thread ha il proprio stato curand
     curandStatePhilox4_32_10_t state;
     curand_init(seed, tid, 0, &state);
     
-    #pragma unroll
-    for (int i = 0; i < N_CYCLES; i++) {
-        int currentOffset = i * 4;
+    float4 Z;
+    float4 res;
 
-        // Genero 4 numeri casuali in un colpo solo (istruzione vettoriale)
+    for (int i = 0; i < N_CYCLES; i++) {
+        int globalFloat4Idx = tid + (i * totalThreads);
+
+        // Controllo bounds (moltiplicato per 4 perché n è il numero di float, non float4)
+        if (globalFloat4Idx * 4 >= n) return;
+
         Z = curand_normal4(&state);
         
-        // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)
         res.x = S0 * __expf(driftTerm + volTerm * Z.x);
         res.y = S0 * __expf(driftTerm + volTerm * Z.y);
         res.z = S0 * __expf(driftTerm + volTerm * Z.z);
         res.w = S0 * __expf(driftTerm + volTerm * Z.w);
 
-        // Scrittura vettorizzata in memoria globale (1 transazione per 4 float)
-        reinterpret_cast<float4*>(&out[baseIdx + currentOffset])[0] = res;
+        reinterpret_cast<float4*>(out)[globalFloat4Idx] = res;
     }
 }
 
@@ -118,7 +126,7 @@ int main(int argc, char* argv[]) {
         nSimulations = std::stol(argv[1]);
     }
 
-    std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
+    std::cout << "=== Monte Carlo GPU ===\n";
 
     // Caricamento dati
     std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
@@ -149,10 +157,14 @@ int main(int argc, char* argv[]) {
     // Allocazione variabile su GPU per simulazioni
     float* dSim;
     cudaMalloc(&dSim, nSimulations * sizeof(float));
-    
-    // Definizione griglia e blocchi 1D e 1D
-    dim3 blockDim(256, 1, 1);
-    dim3 gridDim((nSimulations + (blockDim.x * SIMS_PER_THREAD) - 1) / (blockDim.x * SIMS_PER_THREAD));
+
+    unsigned int totalThreadsNeeded = (nSimulations + SIMS_PER_THREAD - 1) / SIMS_PER_THREAD;
+    unsigned int blockSize = 256;
+    // Calcolo della dimensione della Grid
+    unsigned int numBlocks = (totalThreadsNeeded + blockSize - 1) / blockSize;
+
+    dim3 blockDim(blockSize, 1, 1);
+    dim3 gridDim(numBlocks, 1, 1);
 
     monteCarloKernel<<<gridDim, blockDim>>>(dSim, nSimulations, S0, driftTerm, volTerm, SEED);
     cudaDeviceSynchronize();
@@ -177,7 +189,6 @@ int main(int argc, char* argv[]) {
 
     std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
 
-
     // Analisi dei risultati
     std::cout << "Analisi dei risultati..." << std::endl;
 
@@ -197,10 +208,10 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
 
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
-    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
-    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
-    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " ) ---" << std::endl;
+    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
+    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
+    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
 
     return 0;
 }

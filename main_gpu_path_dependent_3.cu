@@ -1,3 +1,10 @@
+/*
+    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
+    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
+    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
+    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
+*/
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -17,13 +24,14 @@
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
 
-// Configurazione
+// CONFIGURAZIONE
 const std::string CSV_FILENAME = "DATASET/msci_world_prezzi.csv";
 const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 
+// FUNZIONI DI UTILITA'
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -75,21 +83,18 @@ void calculateParameters(const std::vector<float>& prices, float& S0, float& dri
     vol   = stdev * std::sqrt(DAYS_OPEN_IN_YEAR);
 }
 
-// Kernel cuda per simulazioni Monte Carlo
+// Kernel cuda per simulazioni Monte Carlo path dependent
 __global__ void monteCarloKernel(float *dResults, float S0, float driftPart, float volPart, int nSimulations, int nDays) {
-    // Calcolo ID globale del thread
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (idx < nSimulations) {
-        // Inizializza lo stato del generatore di numeri casuali
         curandStatePhilox4_32_10_t state;
         curand_init(SEED, idx, 0, &state);        
 
         float logSum = 0.0; // Accumuliamo qui invece di moltiplicare il prezzo
         
-        // --- CICLO PATH-DEPENDENT (Il cuore del calcolo) ---
+        #pragma unroll
         for (int t = 0; t < nDays; ++t) {
-            // Genera numero casuale distribuzione normale
             float Z = curand_normal(&state);
             
             // Aggiorna rendita logaritmica cumulativa
@@ -105,24 +110,23 @@ int main(int argc, char* argv[]) {
 // Valore di default se l'utente non inserisce argomenti
     long nSimulations = 10000000; 
     if (argc > 1) {
-        // Converte l'argomento della riga di comando in numero
         nSimulations = std::stol(argv[1]);
     }
 
-//    std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
+    std::cout << "=== Monte Carlo GPU Path Dependent con Sort e proprietà dei Logaritmi  ===\n";
 
     // Caricamento dati
-//    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
+    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     auto prices = readPrices(CSV_FILENAME);
-//    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
+    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
     // Calcolo parametri
     float S0, drift, volatilita;
     calculateParameters(prices, S0, drift, volatilita);
 
-//    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
- //   std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
-//    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
+    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+   std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
 
     const float DT = 1.0 / static_cast<float>(DAYS_OPEN_IN_YEAR);
     const float driftStep = (drift - 0.5 * volatilita * volatilita) * DT;
@@ -170,7 +174,7 @@ int main(int argc, char* argv[]) {
     std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
 
     // Analisi dei risultati
-//    std::cout << "Analisi dei risultati..." << std::endl;
+    std::cout << "Analisi dei risultati..." << std::endl;
 
     // Scenario Peggiore (1% percentile - Potential Downside)
     int idxWorst = (int)(nSimulations * 0.01f);
@@ -188,10 +192,10 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
 
     std::cout << std::fixed << std::setprecision(2);
-    /* std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " EUR) ---" << std::endl;
-    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " EUR (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
-    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " EUR (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
-    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " EUR (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
- */
+    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << " ) ---" << std::endl;
+    std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
+    std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
+    std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
+
     return 0;
 }

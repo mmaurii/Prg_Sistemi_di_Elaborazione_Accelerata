@@ -1,3 +1,10 @@
+/*
+    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
+    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
+    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
+    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
+*/
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -18,12 +25,14 @@
 #include <thrust/execution_policy.h>
 #include <cuda_fp16.h>
 
-// Configurazione
+// CONFIGURAZIONE
 const std::string CSV_FILENAME = "DATASET/S&P500_prezzi.csv";
 const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
+
+// FUNZIONI DI UTILITA'
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -175,8 +184,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
 
-
-//    std::cout << "Analisi dei risultati..." << std::endl;
+    std::cout << "Analisi dei risultati..." << std::endl;
     
     // Scenario Peggiore (1% percentile - Potential Downside)
     float portfolioWorst = CAPITALE_INIZIALE * (priceWorst / S0);
@@ -188,10 +196,10 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
     
     std::cout << std::fixed << std::setprecision(2);
-/*     std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
     std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
     std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
     std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
- */
+
     return 0;
 }

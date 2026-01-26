@@ -26,8 +26,8 @@ EXECUTABLES_CONFIG = [
     ("./main_simd", False)
 ]
 
-POW_START = 5  # 10^5
-POW_END = 9    # 10^9
+POW_START = 7  # 10^5
+POW_END = 7    # 10^9
 OUTPUT_DIR = "benchmark_results_native" # Ho cambiato nome cartella per non mischiare con nsys
 
 # Limite di tempo in secondi per l'esecuzione

@@ -18,7 +18,7 @@ EXECUTABLES_CONFIG = [
     ("./main_gpu_11", True),
     ]
 
-POW_START = 9  # 10^5
+POW_START = 5  # 10^5
 POW_END = 9    # 10^9
 OUTPUT_DIR = "benchmark_results"
 
