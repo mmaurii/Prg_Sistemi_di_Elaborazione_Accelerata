@@ -77,35 +77,33 @@ float myxs128_u01(uint64_t x) {
 }
 
 // Conversione da distribuzione normale a gaussiana
-// Metodo di Marsaglia
-__device__ float myxs128_normal(MyXS128State& st) {
-    if (st.hasSpare) {
-        st.hasSpare = false;
-        return st.spare;
-    }
+// Metodo Box-Muller - Genera 2 numeri gaussiani
+__device__ float2 myxs128_normal2(MyXS128State& st) {
+    float u1 = myxs128_u01(myxs128_step(st.s));
+    float u2 = myxs128_u01(myxs128_step(st.s));
 
-    float x, y, s;
-    do {
-        x = 2.0f * myxs128_u01(myxs128_step(st.s)) - 1.0f;
-        y = 2.0f * myxs128_u01(myxs128_step(st.s)) - 1.0f;
-        s = x*x + y*y;
-    } while (s >= 1.0f || s == 0.0f);
+    // Assicuriamoci che u1 non sia esattamente 0 per evitare log(0) = -inf
+    // fmaxf è un'istruzione hardware rapida che prende il massimo tra u1 e 
+    // un piccolo valore positivo (epsilon) per evitare problemi numerici con log(0)
+    u1 = fmaxf(u1, 5.9604644775390625e-08f); 
 
-    float m = sqrtf(-2.0f * logf(s) / s);
-    st.spare = y * m;
-    st.hasSpare = true;
+    // Calcolo del raggio (utilizzando l'intrinseco per log)
+    float r = sqrtf(-2.0f * __logf(u1));
 
-    return x * m;
+    float s, c;
+    // sincospif calcola simultaneamente sin(pi * x) e cos(pi * x)
+    // Moltiplicando u2 per 2.0f otteniamo l'angolo corretto
+    sincospif(2.0f * u2, &s, &c);
+
+    // Restituisce la coppia Gaussiana
+    return make_float2(r * c, r * s);
 }
 
 // Funzione ausiliaria per CUDA
 __device__ float4 myxs128_normal4(MyXS128State& st) {
-    return make_float4(
-        myxs128_normal(st),
-        myxs128_normal(st),
-        myxs128_normal(st),
-        myxs128_normal(st)
-    );
+    float2 pair1 = myxs128_normal2(st);
+    float2 pair2 = myxs128_normal2(st);
+    return make_float4(pair1.x, pair1.y, pair2.x, pair2.y);
 }
 
 
@@ -127,13 +125,6 @@ std::vector<float> readPrices(const std::string& filename) {
         }
     }
     return prices;
-}
-
-// Calcolo prestazioni
-float cpuSecond() {
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    return ((float)ts.tv_sec + (float)ts.tv_nsec * 1.e-9);
 }
 
 // Calcolo parametri drift e volatilità

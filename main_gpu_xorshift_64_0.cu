@@ -117,13 +117,6 @@ std::vector<float> readPrices(const std::string& filename) {
     return prices;
 }
 
-// Calcolo prestazioni
-float cpuSecond() {
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    return ((float)ts.tv_sec + (float)ts.tv_nsec * 1.e-9);
-}
-
 // Calcolo parametri drift e volatilità
 void calculateParameters(const std::vector<float>& prices, float& S0, float& drift, float& vol) {
     S0 = prices.back();

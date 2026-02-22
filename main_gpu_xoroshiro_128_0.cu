@@ -1,10 +1,3 @@
-/*
-    Questo codice è parte del progetto di SISTEMI DI ELABORAZIONE ACCELLERATA M, implementa una simulazione 
-    montecarlo partendo da dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset
-    o un portafoglio di asset, basandosi su modelli stocastici. In questo modo da possiamo valutare il rischio e il
-    potenziale rendimento dell'investimento in un orizzonte temporale definito. 
-*/
-
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -25,14 +18,98 @@
 #include <thrust/execution_policy.h>
 #include <cuda_fp16.h>
 
-// CONFIGURAZIONE
+// Configurazione
 const std::string CSV_FILENAME = "DATASET/S&P500_prezzi.csv";
 const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 
-// FUNZIONI DI UTILITA'
+/* ==== STRUTTURA E FUNZIONI PER RNG XOROSHIRO128+* ==== */
+
+// Struttura di stato
+struct MyXS128State {
+    uint64_t s[2];
+    float spare;
+    bool hasSpare;
+};
+
+// Funzione ausiliaria di inizializzazione robusta
+__device__ uint64_t myxs128_splitmix64(uint64_t& x) {
+    uint64_t z = (x += 0x9e3779b97f4a7c15ULL);
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+    return z ^ (z >> 31);
+}
+
+// Init random generator
+__device__ void myxs128_init_rng(MyXS128State& st, uint64_t seed, int tid) {
+    uint64_t x = seed ^ (uint64_t)tid;
+    st.s[0] = myxs128_splitmix64(x);
+    st.s[1] = myxs128_splitmix64(x);
+    st.hasSpare = false;
+}
+
+// Funzione ausiliaria di rotazione
+__device__ __forceinline__
+uint64_t myxs128_rotl(const uint64_t x, int k) {
+    return (x << k) | (x >> (64 - k));
+}
+
+// Step Xoroshiro128+
+__device__ __forceinline__
+uint64_t myxs128_step(uint64_t s[2]) {
+    uint64_t s0 = s[0];
+    uint64_t s1 = s[1];
+    uint64_t result = s0 + s1;
+
+    s1 ^= s0;
+    s[0] = myxs128_rotl(s0, 55) ^ s1 ^ (s1 << 14);
+    s[1] = myxs128_rotl(s1, 36);
+
+    return result;
+}
+
+// Da variabile uniforme a float (Intervallo 0..1)
+__device__ __forceinline__
+float myxs128_u01(uint64_t x) {
+    return (x >> 40) * (1.0f / (1ULL << 24));
+}
+
+// Conversione da distribuzione normale a gaussiana
+// Metodo di Marsaglia
+__device__ float myxs128_normal(MyXS128State& st) {
+    if (st.hasSpare) {
+        st.hasSpare = false;
+        return st.spare;
+    }
+
+    float x, y, s;
+    do {
+        x = 2.0f * myxs128_u01(myxs128_step(st.s)) - 1.0f;
+        y = 2.0f * myxs128_u01(myxs128_step(st.s)) - 1.0f;
+        s = x*x + y*y;
+    } while (s >= 1.0f || s == 0.0f);
+
+    float m = sqrtf(-2.0f * logf(s) / s);
+    st.spare = y * m;
+    st.hasSpare = true;
+
+    return x * m;
+}
+
+// Funzione ausiliaria per CUDA
+__device__ float4 myxs128_normal4(MyXS128State& st) {
+    return make_float4(
+        myxs128_normal(st),
+        myxs128_normal(st),
+        myxs128_normal(st),
+        myxs128_normal(st)
+    );
+}
+
+
+/* ===================================================== */
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -50,13 +127,6 @@ std::vector<float> readPrices(const std::string& filename) {
         }
     }
     return prices;
-}
-
-// Calcolo prestazioni
-float cpuSecond() {
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    return ((float)ts.tv_sec + (float)ts.tv_nsec * 1.e-9);
 }
 
 // Calcolo parametri drift e volatilità
@@ -90,11 +160,11 @@ __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float
 
     if (tid * 4 >= n) return; // Ogni thread calcola 4 simulazioni
 
-    curandStatePhilox4_32_10_t state;
-    curand_init(seed, tid, 0, &state);
+    MyXS128State state;
+    myxs128_init_rng(state, seed, tid);
 
     // Genero 4 numeri casuali in un colpo solo (istruzione vettoriale)
-    float4 Z = curand_normal4(&state);
+    float4 Z = myxs128_normal4(state);
     
     float4 res;
     // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)
@@ -116,12 +186,22 @@ int main(int argc, char* argv[]) {
         nSimulations = std::stol(argv[1]);
     }
 
+//    std::cout << "=== Monte Carlo VaR GPU (NAIVE) ===\n";
+
     // Caricamento dati
+//    std::cout << "Lettura dati da " << CSV_FILENAME << "..." << std::endl;
     auto prices = readPrices(CSV_FILENAME);
+//    std::cout << "Letti " << prices.size() << " prezzi storici." << std::endl;
 
     // Calcolo parametri
     float S0, drift, volatilita;
     calculateParameters(prices, S0, drift, volatilita);
+
+//    std::cout << "Prezzo Iniziale (S0): " << S0 << std::endl;
+//    std::cout << "Drift Annualizzato: " << drift << " (" << drift*100 << "%)" << std::endl;
+//    std::cout << "Volatilita' Annualizzata: " << volatilita << " (" << volatilita*100 << "%)" << std::endl;
+
+//    std::cout << "\nAvvio Simulazione (" << nSimulations << " iterazioni)..." << std::endl;
 
     float driftTerm = (drift - 0.5 * volatilita * volatilita) * T_YEARS;
     float volTerm   = volatilita * std::sqrt(T_YEARS);
@@ -174,7 +254,8 @@ int main(int argc, char* argv[]) {
 
     std::cout << "GPU Kernel Time: " << milliseconds << " ms" << std::endl;
 
-    std::cout << "Analisi dei risultati..." << std::endl;
+
+//    std::cout << "Analisi dei risultati..." << std::endl;
     
     // Scenario Peggiore (1% percentile - Potential Downside)
     float portfolioWorst = CAPITALE_INIZIALE * (priceWorst / S0);
@@ -186,10 +267,10 @@ int main(int argc, char* argv[]) {
     float portfolioBest = CAPITALE_INIZIALE * (priceBest / S0);
     
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
+/*     std::cout << "\n--- PROIEZIONE PATRIMONIO (Investimento: " << CAPITALE_INIZIALE << ") ---" << std::endl;
     std::cout << "Scenario migliore (1% percentile):   " << portfolioBest << " (+" << (portfolioBest / CAPITALE_INIZIALE - 1) * 100 << "%)" << std::endl;
     std::cout << "Scenario medio (50% percentile): " << portfolioMed << " (+" << (portfolioMed / CAPITALE_INIZIALE - 1) * 100 << "%)"<< std::endl;
     std::cout << "Scenario pessimo (99% percentile):  " << portfolioWorst << " (-" << (1 - portfolioWorst / CAPITALE_INIZIALE) * 100 << "%)" << std::endl;
-
+ */
     return 0;
 }
