@@ -1,5 +1,7 @@
 # Progetto di Sistemi di Elaborazione Accelerata M
 
+[English version](README.en.md)
+
 ## Descrizione del Progetto
 Questo progetto implementa una simulazione Monte Carlo utilizzando dati storici scaricati da yfinance. L'obiettivo è stimare il valore futuro di un asset o di un portafoglio di asset, basandosi su modelli stocastici. Questo approccio consente di valutare il rischio e il potenziale rendimento dell'investimento in un orizzonte temporale definito.
 
