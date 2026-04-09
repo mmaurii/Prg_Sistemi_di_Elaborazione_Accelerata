@@ -1,5 +1,7 @@
 # Accelerated Computing Monte Carlo Project
 
+[Italian version](README.md)
+
 University project for Monte Carlo simulation of financial price dynamics with multiple implementations:
 
 - naive CPU (float and double)
