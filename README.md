@@ -14,7 +14,7 @@ Questo progetto implementa una simulazione Monte Carlo utilizzando dati storici 
 ## Compilazione
 Per compilare i file CUDA, utilizzare il comando:
 ```
-vcc nomefile.cu -o nomeexec
+nvcc nomefile.cu -o nomeexec
 ```
 Per i file C++, utilizzare il compilatore g++:
 ```
@@ -41,6 +41,31 @@ ncu -i nomefile.ncu-rep
 ```
 
 Questi strumenti permettono di identificare colli di bottiglia e ottimizzare il codice CUDA per ottenere migliori prestazioni.
+
+## Cartella BENCHMARK
+La cartella [BENCHMARK/](BENCHMARK/) contiene una suite dedicata al confronto qualitativo dei generatori pseudo-casuali usati nelle versioni GPU.
+
+### Struttura
+- [BENCHMARK/code/](BENCHMARK/code/): programmi CUDA per generare stream binari (`.bin`) da diversi RNG (CURAND, xorshift64, xoroshiro128, splitmix64, pcg32, incluse alcune varianti `_s64`).
+- [BENCHMARK/results/dieharder/](BENCHMARK/results/dieharder/): output dei test `dieharder`.
+- [BENCHMARK/results/practrand/](BENCHMARK/results/practrand/): output dei test `PractRand`.
+
+### Esempio di utilizzo
+1. Compilare un benchmark RNG:
+	```bash
+	nvcc BENCHMARK/code/bench_xorshift64.cu -O3 -o bench_xorshift64
+	```
+2. Generare il file binario:
+	```bash
+	./bench_xorshift64
+	```
+3. Eseguire i test statistici:
+	```bash
+	dieharder -a -g 201 -f xorshift64.bin > BENCHMARK/results/dieharder/die_xorshift64.txt
+	RNG_test stdin64 -tf 512MB < xorshift64.bin > BENCHMARK/results/practrand/pra_xorshift64.txt
+	```
+
+I risultati già inclusi in [BENCHMARK/results/](BENCHMARK/results/) permettono di confrontare rapidamente i vari generatori anche senza rieseguire tutta la pipeline.
 
 ## Presentazione del Progetto
 Per una visione più completa del progetto, inclusi i risultati ottenuti, le analisi di prestazioni e i confronti tra le diverse implementazioni (CPU vs GPU, SIMD, etc.), consultare [la presentazione associata](risorse/PRG_SISTEMI_DI_ELABORAZIONE_ACCELERATA.pdf).
