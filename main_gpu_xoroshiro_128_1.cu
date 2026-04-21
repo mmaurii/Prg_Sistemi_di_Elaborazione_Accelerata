@@ -30,8 +30,6 @@ const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 // Struttura di stato
 struct MyXS128State {
     uint64_t s[2];
-    float spare;
-    bool hasSpare;
 };
 
 // Funzione ausiliaria di inizializzazione robusta
@@ -47,7 +45,6 @@ __device__ void myxs128_init_rng(MyXS128State& st, uint64_t seed, int tid) {
     uint64_t x = seed ^ (uint64_t)tid;
     st.s[0] = myxs128_splitmix64(x);
     st.s[1] = myxs128_splitmix64(x);
-    st.hasSpare = false;
 }
 
 // Funzione ausiliaria di rotazione
