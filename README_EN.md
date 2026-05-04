@@ -150,6 +150,32 @@ python collectData1.py
 
 Important: these scripts include executable names that may not exist in the current repository (for example `main_gpu_11` or `main_naif_cpu_2`). Remove or update missing entries before large benchmark batches.
 
+## RNG Statistical Benchmark Suite (BENCHMARK)
+
+The [BENCHMARK/](BENCHMARK/) folder contains a dedicated CUDA-based suite to evaluate the statistical quality of GPU random-number generators.
+
+### Structure
+- [BENCHMARK/code/](BENCHMARK/code/): CUDA programs that generate binary streams (`.bin`) for different RNGs (CURAND, xorshift64, xoroshiro128, splitmix64, pcg32, including `_s64` variants).
+- [BENCHMARK/results/dieharder/](BENCHMARK/results/dieharder/): stored `dieharder` test outputs.
+- [BENCHMARK/results/practrand/](BENCHMARK/results/practrand/): stored `PractRand` outputs.
+
+### Example workflow
+1. Build one RNG benchmark:
+	```bash
+	nvcc BENCHMARK/code/bench_xorshift64.cu -O3 -o bench_xorshift64
+	```
+2. Generate the binary stream:
+	```bash
+	./bench_xorshift64
+	```
+3. Run statistical tests:
+	```bash
+	dieharder -a -g 201 -f xorshift64.bin > BENCHMARK/results/dieharder/die_xorshift64.txt
+	RNG_test stdin64 -tf 512MB < xorshift64.bin > BENCHMARK/results/practrand/pra_xorshift64.txt
+	```
+
+Precomputed outputs in [BENCHMARK/results/](BENCHMARK/results/) can be used directly for quick cross-generator comparisons.
+
 ## Dataset
 
 The repository includes historical CSV series in `DATASET/`, including:

@@ -25,59 +25,43 @@ const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
 
-/* ==== STRUTTURA E FUNZIONI PER RNG XOROSHIRO128+* ==== */
+/* ==== STRUTTURA E FUNZIONI PER RNG PCG32 ==== */
 
 // Struttura di stato
-struct MyXS128State {
-    uint64_t s[2];
-};
+struct MyPCG32State { uint64_t state; uint64_t inc; };
 
-// Funzione ausiliaria di inizializzazione robusta
-__device__ uint64_t myxs128_splitmix64(uint64_t& x) {
-    uint64_t z = (x += 0x9e3779b97f4a7c15ULL);
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-    return z ^ (z >> 31);
+//Step RNG
+__device__ uint32_t mypcg32_step(MyPCG32State* rng) {
+    uint64_t oldstate = rng->state;
+    // LCG classico: stato successivo
+    rng->state = oldstate * 6364136223846793005ULL + rng->inc;
+    // Permutazione: XOR-shift e rotazione bit
+    uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+    uint32_t rot = oldstate >> 59u;
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
 }
 
-// Init random generator
-__device__ void myxs128_init_rng(MyXS128State& st, uint64_t seed, int tid) {
-    uint64_t x = seed ^ (uint64_t)tid;
-    st.s[0] = myxs128_splitmix64(x);
-    st.s[1] = myxs128_splitmix64(x);
-}
+// Init random generator (coerente con bench_pcg32.cu)
+__device__ void mypcg32_init_rng(MyPCG32State& st, uint64_t initstate, uint64_t initseq) {
+    st.state = 0U;
+    st.inc   = (initseq << 1u) | 1u;
 
-// Funzione ausiliaria di rotazione
-__device__ __forceinline__
-uint64_t myxs128_rotl(const uint64_t x, int k) {
-    return (x << k) | (x >> (64 - k));
-}
-
-// Step Xoroshiro128+
-__device__ __forceinline__
-uint64_t myxs128_step(uint64_t s[2]) {
-    uint64_t s0 = s[0];
-    uint64_t s1 = s[1];
-    uint64_t result = s0 + s1;
-
-    s1 ^= s0;
-    s[0] = myxs128_rotl(s0, 55) ^ s1 ^ (s1 << 14);
-    s[1] = myxs128_rotl(s1, 36);
-
-    return result;
+    mypcg32_step(&st);      // warm-up
+    st.state += initstate;
+    mypcg32_step(&st);      // decorrelazione
 }
 
 // Da variabile uniforme a float (Intervallo 0..1)
 __device__ __forceinline__
-float myxs128_u01(uint64_t x) {
-    return (x >> 40) * (1.0f / (1ULL << 24));
+float mypcg32_u01(uint32_t x) {
+    return (x >> 8) * (1.0f / (1u << 24));
 }
 
 // Conversione da distribuzione normale a gaussiana
 // Metodo Box-Muller - Genera 2 numeri gaussiani
-__device__ float2 myxs128_normal2(MyXS128State& st) {
-    float u1 = myxs128_u01(myxs128_step(st.s));
-    float u2 = myxs128_u01(myxs128_step(st.s));
+__device__ float2 mypcg32_normal2(MyPCG32State& st) {
+    float u1 = mypcg32_u01(mypcg32_step(&st));
+    float u2 = mypcg32_u01(mypcg32_step(&st));
 
     // Assicuriamoci che u1 non sia esattamente 0 per evitare log(0) = -inf
     // fmaxf è un'istruzione hardware rapida che prende il massimo tra u1 e 
@@ -96,15 +80,14 @@ __device__ float2 myxs128_normal2(MyXS128State& st) {
     return make_float2(r * c, r * s);
 }
 
-// Funzione ausiliaria per CUDA
-__device__ float4 myxs128_normal4(MyXS128State& st) {
-    float2 pair1 = myxs128_normal2(st);
-    float2 pair2 = myxs128_normal2(st);
+// Funzione ausiliaria per CUDA - Genera 4 numeri gaussiani con 2 iterazioni
+__device__ float4 mypcg32_normal4(MyPCG32State& st) {
+    float2 pair1 = mypcg32_normal2(st);
+    float2 pair2 = mypcg32_normal2(st);
     return make_float4(pair1.x, pair1.y, pair2.x, pair2.y);
 }
 
-
-/* ===================================================== */
+/* ================================================== */
 
 // Caricamento dati da CSV
 std::vector<float> readPrices(const std::string& filename) {
@@ -155,11 +138,11 @@ __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float
 
     if (tid * 4 >= n) return; // Ogni thread calcola 4 simulazioni
 
-    MyXS128State state;
-    myxs128_init_rng(state, seed, tid);
+    MyPCG32State state;
+    mypcg32_init_rng(state, seed, tid);
 
     // Genero 4 numeri casuali in un colpo solo (istruzione vettoriale)
-    float4 Z = myxs128_normal4(state);
+    float4 Z = mypcg32_normal4(state);
     
     float4 res;
     // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)

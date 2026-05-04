@@ -24,6 +24,8 @@ const float T_YEARS = 1.0;
 const int SEED = 12345UL;
 const int DAYS_OPEN_IN_YEAR = 252;        // Giorni borsa aperta in un anno
 const float CAPITALE_INIZIALE = 10000.0; // Investimento ipotetico iniziale
+const float U01_EPS = 5.9604644775390625e-08f;
+const float TWO_PI  = 6.28318530717958647692f;
 
 /* ==== STRUTTURA E FUNZIONI PER RNG XOROSHIRO128+* ==== */
 
@@ -33,7 +35,8 @@ struct MyXS128State {
 };
 
 // Funzione ausiliaria di inizializzazione robusta
-__device__ uint64_t myxs128_splitmix64(uint64_t& x) {
+__device__ __forceinline__
+uint64_t myxs128_splitmix64(uint64_t& x) {
     uint64_t z = (x += 0x9e3779b97f4a7c15ULL);
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
     z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
@@ -41,7 +44,8 @@ __device__ uint64_t myxs128_splitmix64(uint64_t& x) {
 }
 
 // Init random generator
-__device__ void myxs128_init_rng(MyXS128State& st, uint64_t seed, int tid) {
+__device__ __forceinline__
+void myxs128_init_rng(MyXS128State& st, uint64_t seed, int tid) {
     uint64_t x = seed ^ (uint64_t)tid;
     st.s[0] = myxs128_splitmix64(x);
     st.s[1] = myxs128_splitmix64(x);
@@ -75,29 +79,31 @@ float myxs128_u01(uint64_t x) {
 
 // Conversione da distribuzione normale a gaussiana
 // Metodo Box-Muller - Genera 2 numeri gaussiani
-__device__ float2 myxs128_normal2(MyXS128State& st) {
+__device__ __forceinline__
+float2 myxs128_normal2(MyXS128State& st) {
     float u1 = myxs128_u01(myxs128_step(st.s));
     float u2 = myxs128_u01(myxs128_step(st.s));
 
     // Assicuriamoci che u1 non sia esattamente 0 per evitare log(0) = -inf
     // fmaxf è un'istruzione hardware rapida che prende il massimo tra u1 e 
     // un piccolo valore positivo (epsilon) per evitare problemi numerici con log(0)
-    u1 = fmaxf(u1, 5.9604644775390625e-08f); 
+    u1 = fmaxf(u1, U01_EPS);
 
     // Calcolo del raggio (utilizzando l'intrinseco per log)
-    float r = sqrtf(-2.0f * __logf(u1));
+    float r = __fsqrt_rn(-2.0f * __logf(u1));
 
     float s, c;
     // sincospif calcola simultaneamente sin(pi * x) e cos(pi * x)
     // Moltiplicando u2 per 2.0f otteniamo l'angolo corretto
-    sincospif(2.0f * u2, &s, &c);
+    __sincosf(TWO_PI * u2, &s, &c);
 
     // Restituisce la coppia Gaussiana
     return make_float2(r * c, r * s);
 }
 
 // Funzione ausiliaria per CUDA
-__device__ float4 myxs128_normal4(MyXS128State& st) {
+__device__ __forceinline__
+float4 myxs128_normal4(MyXS128State& st) {
     float2 pair1 = myxs128_normal2(st);
     float2 pair2 = myxs128_normal2(st);
     return make_float4(pair1.x, pair1.y, pair2.x, pair2.y);
@@ -163,10 +169,10 @@ __global__ void monteCarloKernel(float* __restrict__ out, int n, float S0, float
     
     float4 res;
     // Calcolo simulazione (__expf che è l'intrinseco veloce, approssimativa)
-    res.x = S0 * __expf(driftTerm + volTerm * Z.x);
-    res.y = S0 * __expf(driftTerm + volTerm * Z.y);
-    res.z = S0 * __expf(driftTerm + volTerm * Z.z);
-    res.w = S0 * __expf(driftTerm + volTerm * Z.w);
+    res.x = S0 * __expf(fmaf(volTerm, Z.x, driftTerm));
+    res.y = S0 * __expf(fmaf(volTerm, Z.y, driftTerm));
+    res.z = S0 * __expf(fmaf(volTerm, Z.z, driftTerm));
+    res.w = S0 * __expf(fmaf(volTerm, Z.w, driftTerm));
 
     // Scrittura vettorizzata in memoria globale (1 transazione per 4 float)
     reinterpret_cast<float4*>(out)[tid] = res;
